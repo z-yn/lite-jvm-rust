@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = [
+  "class_file_reader",
+  "lite_jvm",
+  "lite_jvm_cli"
+]
