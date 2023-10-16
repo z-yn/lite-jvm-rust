@@ -1,5 +1,6 @@
 use crate::class_file_version::ClassFileVersion;
 use crate::constant_pool::ConstantPool;
+use std::fmt::{write, Display, Formatter};
 
 use crate::attribute_info::AttributeInfo;
 use crate::field_info::FieldInfo;
@@ -40,4 +41,18 @@ pub struct ClassFile {
     pub field_info: Vec<FieldInfo>,
     pub method_info: Vec<MethodInfo>,
     pub attribute_info: Vec<AttributeInfo>,
+}
+
+impl Display for ClassFile {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Class {}", self.this_class_name)?;
+        if let Some(super_class) = &self.super_class_name {
+            write!(f, "(extends {})", super_class)?;
+        }
+        writeln!(f, "accessFlag:{}", self.access_flags)?;
+        writeln!(f, "version: {}", self.version)?;
+        writeln!(f, "constants:")?;
+        write!(f, "{}", self.constant_pool)?;
+        Ok(())
+    }
 }
