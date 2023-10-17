@@ -1,6 +1,6 @@
 use crate::class_file_version::ClassFileVersion;
 use crate::constant_pool::ConstantPool;
-use std::fmt::{write, Display, Formatter};
+use std::fmt::{Display, Formatter};
 
 use crate::attribute_info::AttributeInfo;
 use crate::field_info::FieldInfo;
@@ -49,7 +49,7 @@ impl Display for ClassFile {
         if let Some(super_class) = &self.super_class_name {
             write!(f, "(extends {})", super_class)?;
         }
-        writeln!(f, "accessFlag:{}", self.access_flags)?;
+        // writeln!(f, "accessFlag:{:?}", self.access_flags)?;
         writeln!(f, "version: {}", self.version)?;
         writeln!(f, "constants:")?;
         write!(f, "{}", self.constant_pool)?;

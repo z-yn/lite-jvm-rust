@@ -6,9 +6,15 @@ use std::{
 /// Models the possible errors returned when reading a .class file
 #[derive(Debug, PartialEq, Eq)]
 pub enum ClassFileError {
+    InvalidClassData(String),
     UnsupportedVersion(u16, u16),
+
+    ConstantPoolTagNotSupport(u8),
     InvalidConstantPoolIndexError(u16),
     InvalidMethodHandlerKind(u8),
+
+    UnexpectedEndOfData,
+    InvalidCesu8String,
 }
 
 impl Display for ClassFileError {
@@ -22,6 +28,12 @@ impl Display for ClassFileError {
             }
             ClassFileError::InvalidMethodHandlerKind(kind) => {
                 write!(f, "invalid method handler kind {kind}")
+            }
+            ClassFileError::InvalidClassData(msg) => write!(f, "invalid class data: {msg}"),
+            ClassFileError::UnexpectedEndOfData => write!(f, "unexpected end of data"),
+            ClassFileError::InvalidCesu8String => write!(f, "invalid cesu8 string"),
+            ClassFileError::ConstantPoolTagNotSupport(tag) => {
+                write!(f, "constant pool tag not support: {tag}")
             }
         }
     }

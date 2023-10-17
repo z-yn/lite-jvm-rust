@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 strum_macros = "0.25.2"
 cesu8 = "1.1"
-thiserror = "1"
 bitflags = "2.4.0"
+log = "0.4.17"

@@ -1,19 +1,9 @@
+use crate::class_file_error::{ClassFileError, Result};
 use cesu8::from_java_cesu8;
-use thiserror::Error;
 pub struct ByteBuffer<'a> {
     buffer: &'a [u8],
     position: usize,
 }
-
-#[derive(Error,Debug, PartialEq)]
-pub enum BufferError {
-    #[error("unexpected end of data")]
-    UnexpectedEndOfData,
-    #[error("invalid cesu8 string")]
-    InvalidCesu8String,
-}
-
-type Result<T> = std::result::Result<T, BufferError>;
 
 impl<'a> ByteBuffer<'a> {
     pub fn new(data: &'a [u8]) -> Self {
@@ -25,7 +15,7 @@ impl<'a> ByteBuffer<'a> {
 
     fn advance(&mut self, size: usize) -> Result<&'a [u8]> {
         if self.position + size > self.buffer.len() {
-            Err(BufferError::UnexpectedEndOfData)
+            Err(ClassFileError::UnexpectedEndOfData)
         } else {
             let slice = &self.buffer[self.position..self.position + size];
             self.position += size;
@@ -36,6 +26,18 @@ impl<'a> ByteBuffer<'a> {
     pub fn read_u8(&mut self) -> Result<u8> {
         self.advance(std::mem::size_of::<u8>())
             .map(|bytes| u8::from_be_bytes(bytes.try_into().unwrap()))
+    }
+
+    pub fn read_2_u16(&mut self) -> Result<(u16, u16)> {
+        let first = self.read_u16()?;
+        let second = self.read_u16()?;
+        Ok((first, second))
+    }
+
+    pub fn read_u8_u16(&mut self) -> Result<(u8, u16)> {
+        let first = self.read_u8()?;
+        let second = self.read_u16()?;
+        Ok((first, second))
     }
 
     pub fn read_u16(&mut self) -> Result<u16> {
@@ -70,7 +72,9 @@ impl<'a> ByteBuffer<'a> {
 
     pub fn read_utf8(&mut self, len: usize) -> Result<String> {
         self.advance(len)
-            .and_then(|bytes| from_java_cesu8(bytes).map_err(|_| BufferError::InvalidCesu8String))
+            .and_then(|bytes| {
+                from_java_cesu8(bytes).map_err(|_| ClassFileError::InvalidCesu8String)
+            })
             .map(|cow_string| cow_string.into_owned())
     }
 
@@ -98,4 +102,3 @@ mod tests {
         assert!(buffer.read_u32().is_err());
     }
 }
-
