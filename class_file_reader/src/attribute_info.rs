@@ -1,5 +1,5 @@
 use crate::attribute_info::AttributeType::CustomType;
-use crate::class_file_error::{ClassFileError, Result};
+use crate::class_file_error::Result;
 use std::fmt::{Display, Formatter};
 
 /// ## 属性信息
