@@ -25,6 +25,15 @@ impl Default for FieldAccessFlags {
 
 /// ## 字段信息
 /// [jvms refer](https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.5)
+/// ``` c
+/// field_info {
+///     u2             access_flags;
+///     u2             name_index;
+///     u2             descriptor_index;
+///     u2             attributes_count;
+///     attribute_info attributes[attributes_count];
+/// }
+/// ```
 pub struct FieldInfo {
     pub access_flags: FieldAccessFlags,
     //name_index ->解析的时候可以直接读出来

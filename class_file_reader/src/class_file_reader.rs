@@ -1,4 +1,4 @@
-use crate::attribute_info::AttributeInfo;
+use crate::attribute_info::{AttributeInfo, AttributeType};
 use crate::cesu8_byte_buffer::ByteBuffer;
 use crate::class_file::{ClassAccessFlags, ClassFile};
 use crate::class_file_error::{ClassFileError, Result};
@@ -43,6 +43,8 @@ pub fn read_buffer(buf: &[u8]) -> Result<ClassFile> {
     let field_info = read_field_info(&mut buffer, &constant_pool)?;
     let method_info = read_method_info(&mut buffer, &constant_pool)?;
     let attribute_info = read_attribute_info(&mut buffer, &constant_pool)?;
+    //此时应该读取完所有数据
+    assert!(!buffer.has_more_data());
     Ok(ClassFile {
         version,
         constant_pool,
@@ -105,6 +107,18 @@ fn read_field_info(buffer: &mut ByteBuffer, cp: &ConstantPool) -> Result<Vec<Fie
         .map(|_| read_one_field(buffer, cp))
         .collect()
 }
+/// https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.5
+/// 结构如下
+/// ```c
+/// field_info {
+///     u2             access_flags;
+///     u2             name_index;
+///    u2             descriptor_index;
+///     u2             attributes_count;
+///     attribute_info attributes[attributes_count];
+/// }
+/// ```
+///
 
 fn read_one_field(buffer: &mut ByteBuffer, cp: &ConstantPool) -> Result<FieldInfo> {
     let access_flag = buffer.read_u16()?;
@@ -186,7 +200,14 @@ fn read_attribute_info(buffer: &mut ByteBuffer, cp: &ConstantPool) -> Result<Vec
 /// ```
 fn read_one_attribute(buffer: &mut ByteBuffer, cp: &ConstantPool) -> Result<AttributeInfo> {
     let attribute_name_index = buffer.read_u16()?;
-    let name = cp.get_string(&attribute_name_index)?;
+
+    let name = if let ConstantPoolEntry::Utf8(value) = cp.get(&attribute_name_index)? {
+        AttributeType::by_name(value)
+    } else {
+        return Err(ClassFileError::InvalidClassData(format!(
+            "Should be utf8 String at {attribute_name_index}"
+        )));
+    };
     let attribute_length = buffer.read_u32()? as usize;
     let bytes = buffer.read_bytes(attribute_length)?;
     Ok(AttributeInfo {

@@ -23,7 +23,16 @@ pub enum ConstantPoolEntry {
     Module(ConstantPoolIndex),
     Package(ConstantPoolIndex),
 }
-///https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.4-140
+/// https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.4
+/// ```c
+/// cp_info {
+///     u1 tag;
+///     u1 info[];
+/// }
+/// ```
+/// tag 确定了字段类型，依据类型读取后续的信息。后续信息是个不定长的信息。
+///
+///
 impl ConstantPoolEntry {
     pub fn read_from_bytes(buffer: &mut ByteBuffer) -> Result<ConstantPoolEntry> {
         let flag = buffer.read_u8()?;
@@ -102,7 +111,7 @@ impl MethodHandlerKind {
     }
 }
 impl Display for MethodHandlerKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             MethodHandlerKind::GetField => write!(f, "getfield C.f:T"),
             MethodHandlerKind::GetStatic => write!(f, "getstatic C.f:T"),
@@ -330,8 +339,8 @@ mod tests {
             Err(ClassFileError::InvalidConstantPoolIndexError(7)),
             cp.get(&7)
         );
-        assert_eq!(ConstantPoolEntry::ClassReference(1), *cp.get(8).unwrap());
-        assert_eq!(ConstantPoolEntry::StringReference(1), *cp.get(9).unwrap());
+        assert_eq!(ConstantPoolEntry::ClassReference(1), *cp.get(&8).unwrap());
+        assert_eq!(ConstantPoolEntry::StringReference(1), *cp.get(&9).unwrap());
         assert_eq!(
             ConstantPoolEntry::Utf8("joe".to_string()),
             *cp.get(&10).unwrap()
