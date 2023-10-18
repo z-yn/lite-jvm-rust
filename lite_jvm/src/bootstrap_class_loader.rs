@@ -28,9 +28,13 @@ pub enum LoadClassResult<'a> {
     AlreadyLoaded(ClassRef<'a>),
 }
 pub trait ClassLoader<'a> {
-    fn load_class(&mut self, name: &str) -> Result<LoadClassResult<'a>>;
+    fn load_class<'b: 'a>(&'b mut self, name: &str) -> Result<LoadClassResult<'a>>;
 
-    fn registry_class(&mut self, name: &str, class: LoadedClass<'a>) -> Result<ClassRef<'a>>;
+    fn registry_class<'b: 'a>(
+        &'b mut self,
+        name: &str,
+        class: LoadedClass<'a>,
+    ) -> Result<ClassRef<'a>>;
 }
 
 pub struct BootstrapClassLoader<'a> {
@@ -52,7 +56,7 @@ impl<'a> BootstrapClassLoader<'a> {
 }
 
 impl<'a> ClassLoader<'a> for BootstrapClassLoader<'a> {
-    fn load_class(&mut self, name: &str) -> Result<LoadClassResult<'a>> {
+    fn load_class<'b: 'a>(&'b mut self, name: &str) -> Result<LoadClassResult<'a>> {
         match self.loaded_class.get(name) {
             Some(v) => Ok(AlreadyLoaded(v)),
             None => {
@@ -62,7 +66,11 @@ impl<'a> ClassLoader<'a> for BootstrapClassLoader<'a> {
         }
     }
 
-    fn registry_class(&mut self, class_name: &str, class: LoadedClass<'a>) -> Result<ClassRef<'a>> {
+    fn registry_class<'b: 'a>(
+        &'b mut self,
+        class_name: &str,
+        class: LoadedClass<'a>,
+    ) -> Result<ClassRef<'a>> {
         self.loaded_class.insert(class.name.clone(), class);
         if let AlreadyLoaded(v) = self.load_class(class_name)? {
             Ok(v)

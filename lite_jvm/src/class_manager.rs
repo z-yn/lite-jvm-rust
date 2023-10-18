@@ -19,7 +19,7 @@ impl<'a> ClassManager<'a> {
             custom_class_loader: HashMap::new(),
         }
     }
-    fn load_class(&'a mut self, class_name: &str) -> Result<ClassRef<'a>> {
+    fn load_class<'b: 'a>(&'b mut self, class_name: &str) -> Result<ClassRef<'a>> {
         match self.bootstrap_class_loader.load_class(class_name)? {
             LoadClassResult::NewLoaded(mut class) => {
                 self.link_class(&mut class);
