@@ -2,10 +2,13 @@ use crate::class_file_version::ClassFileVersion;
 use crate::constant_pool::ConstantPool;
 use std::fmt::{Display, Formatter};
 
-use crate::attribute_info::AttributeInfo;
+use crate::attribute_info::{AttributeInfo, AttributeType};
+use crate::class_file_error::ClassFileError;
+use crate::class_file_error::Result;
 use crate::field_info::FieldInfo;
 use crate::method_info::MethodInfo;
 use bitflags::bitflags;
+use cesu8::from_java_cesu8;
 bitflags! {
     /// Class flags
     /// https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.1-200-E.1
@@ -55,6 +58,21 @@ pub struct ClassFile {
     pub field_info: Vec<FieldInfo>,
     pub method_info: Vec<MethodInfo>,
     pub attribute_info: Vec<AttributeInfo>,
+}
+
+impl ClassFile {
+    pub fn source_file(&self) -> Result<Option<String>> {
+        for info in &self.attribute_info {
+            if let AttributeType::SourceFile = info.name {
+                return Ok(Some(
+                    from_java_cesu8(&info.info)
+                        .map_err(|_| ClassFileError::InvalidCesu8String)?
+                        .to_string(),
+                ));
+            }
+        }
+        Ok(None)
+    }
 }
 
 impl Display for ClassFile {

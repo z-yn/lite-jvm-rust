@@ -1,14 +1,6 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub mod bootstrap_class_loader;
+pub mod class_finder;
+pub mod class_manager;
+pub mod jvm_exceptions;
+pub mod loaded_class;
+pub mod virtual_machine;

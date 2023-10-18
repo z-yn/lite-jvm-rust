@@ -6,3 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+class_file_reader = {path = "../class_file_reader"}
+zip = { version = "0.6.6", features = ["deflate"] }
+typed-arena = "2.0.2"
+indexmap = "1.9.2"
