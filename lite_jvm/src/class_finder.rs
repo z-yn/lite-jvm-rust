@@ -14,7 +14,7 @@ pub struct ClassFinder {
 }
 
 impl ClassFinder {
-    pub(crate) fn new() -> ClassFinder {
+    pub fn new() -> ClassFinder {
         ClassFinder {
             class_paths: Vec::new(),
         }
@@ -132,13 +132,15 @@ impl ClassPath for JarFileClassPath {
 #[allow(unused_imports)]
 mod tests {
     use crate::class_finder::{ClassPath, FileSystemClassPath, JarFileClassPath};
+    use class_file_reader::class_file_reader::read_buffer;
 
     #[test]
     fn test_file_system_class_finding() {
         let result = FileSystemClassPath::new("./resources").unwrap();
         let x = result.find_class("HelloWorld").unwrap();
         assert!(x.is_some());
-
+        let parsed_files = read_buffer(&x.unwrap()).unwrap();
+        assert_eq!(parsed_files.this_class_name, "HelloWorld");
         let not_exist = result.find_class("java/lang/String").unwrap();
         assert!(not_exist.is_none());
     }
@@ -149,9 +151,10 @@ mod tests {
             "/Library/Java/JavaVirtualMachines/jdk1.8.0_202.jdk/Contents/Home/jre/lib/rt.jar",
         )
         .unwrap();
-        let string_file = result.find_class("java/lang/String").unwrap();
+        let string_file = result.find_class("java/lang/Object").unwrap();
         assert!(string_file.is_some());
-
+        let parsed_files = read_buffer(&string_file.unwrap()).unwrap();
+        assert_eq!(parsed_files.this_class_name, "java/lang/Object");
         let not_exist = result.find_class("Hello").unwrap();
         assert!(not_exist.is_none());
     }

@@ -4,7 +4,7 @@ use std::fmt::{Display, Formatter};
 
 /// ## 属性信息
 /// 属性可以出现在，字段、方法，类中，是重要的扩展机制
-/// [jvms-4.7](https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.7)
+/// https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.7
 #[derive(Debug, PartialEq)]
 pub struct AttributeInfo {
     pub name: AttributeType,

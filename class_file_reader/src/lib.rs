@@ -1,4 +1,4 @@
-mod attribute_info;
+pub mod attribute_info;
 pub mod cesu8_byte_buffer;
 pub mod class_file;
 pub mod class_file_error;

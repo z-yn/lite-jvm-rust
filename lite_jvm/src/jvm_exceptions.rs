@@ -7,7 +7,6 @@ use std::{
 pub enum Exception {
     ClassNotFoundException(String),
     NoClassDefFoundError(String),
-
     ClassPathNotExist(String),
     JarFileNotExist(String),
     ReadClassBytesError(Box<dyn Error>),

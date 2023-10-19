@@ -1,8 +1,9 @@
 use crate::bootstrap_class_loader::LoadClassResult::{AlreadyLoaded, NewLoaded};
 use crate::class_finder::{ClassFinder, ClassPath};
-use crate::jvm_exceptions::Exception::ClassNotFoundException;
 use crate::jvm_exceptions::{Exception, Result};
-use crate::loaded_class::{load_class, ClassRef, LoadedClass};
+use crate::loaded_class::ClassRef;
+use class_file_reader::class_file::ClassFile;
+use class_file_reader::class_file_reader::read_buffer;
 use std::collections::HashMap;
 
 ///实现BootstrapClassLoader。
@@ -24,58 +25,51 @@ use std::collections::HashMap;
 ///
 ///
 pub enum LoadClassResult<'a> {
-    NewLoaded(LoadedClass<'a>),
+    NewLoaded(ClassFile),
     AlreadyLoaded(ClassRef<'a>),
 }
 pub trait ClassLoader<'a> {
-    fn load_class<'b: 'a>(&'b mut self, name: &str) -> Result<LoadClassResult<'a>>;
+    fn load_class(&self, name: &str) -> Result<LoadClassResult<'a>>;
 
-    fn registry_class<'b: 'a>(
-        &'b mut self,
-        name: &str,
-        class: LoadedClass<'a>,
-    ) -> Result<ClassRef<'a>>;
+    fn registry_class(&mut self, class: ClassRef<'a>);
 }
 
 pub struct BootstrapClassLoader<'a> {
     class_finder: ClassFinder,
-    loaded_class: HashMap<String, LoadedClass<'a>>,
+    loaded_class: HashMap<String, ClassRef<'a>>,
 }
 
 impl<'a> BootstrapClassLoader<'a> {
-    pub(crate) fn new() -> BootstrapClassLoader<'a> {
+    pub fn new() -> BootstrapClassLoader<'a> {
         BootstrapClassLoader {
             class_finder: ClassFinder::new(),
             loaded_class: HashMap::new(),
         }
     }
 
-    pub(crate) fn add_class_path(&mut self, path: Box<dyn ClassPath>) {
+    pub fn find_loaded_class(&mut self, class_name: &str) -> Option<&mut ClassRef<'a>> {
+        self.loaded_class.get_mut(class_name)
+    }
+
+    pub fn add_class_path(&mut self, path: Box<dyn ClassPath>) {
         self.class_finder.class_paths.push(path);
     }
 }
 
 impl<'a> ClassLoader<'a> for BootstrapClassLoader<'a> {
-    fn load_class<'b: 'a>(&'b mut self, name: &str) -> Result<LoadClassResult<'a>> {
+    fn load_class(&self, name: &str) -> Result<LoadClassResult<'a>> {
         match self.loaded_class.get(name) {
             Some(v) => Ok(AlreadyLoaded(v)),
             None => {
-                let result = self.class_finder.find_class(name)?;
-                Ok(NewLoaded(load_class(result)))
+                let new_class_file = self.class_finder.find_class(name).map(|bytes| {
+                    read_buffer(&bytes).map_err(|e| Exception::ReadClassBytesError(Box::new(e)))
+                })?;
+                Ok(NewLoaded(new_class_file?))
             }
         }
     }
 
-    fn registry_class<'b: 'a>(
-        &'b mut self,
-        class_name: &str,
-        class: LoadedClass<'a>,
-    ) -> Result<ClassRef<'a>> {
+    fn registry_class(&mut self, class: ClassRef<'a>) {
         self.loaded_class.insert(class.name.clone(), class);
-        if let AlreadyLoaded(v) = self.load_class(class_name)? {
-            Ok(v)
-        } else {
-            Err(Exception::ClassNotFoundException("".to_string()))
-        }
     }
 }

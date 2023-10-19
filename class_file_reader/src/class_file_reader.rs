@@ -113,7 +113,7 @@ fn read_field_info(buffer: &mut ByteBuffer, cp: &ConstantPool) -> Result<Vec<Fie
 /// field_info {
 ///     u2             access_flags;
 ///     u2             name_index;
-///    u2             descriptor_index;
+///     u2             descriptor_index;
 ///     u2             attributes_count;
 ///     attribute_info attributes[attributes_count];
 /// }
@@ -122,6 +122,8 @@ fn read_field_info(buffer: &mut ByteBuffer, cp: &ConstantPool) -> Result<Vec<Fie
 
 fn read_one_field(buffer: &mut ByteBuffer, cp: &ConstantPool) -> Result<FieldInfo> {
     let access_flag = buffer.read_u16()?;
+
+    let name_index = buffer.read_u16()?;
     let access_flags = match FieldAccessFlags::from_bits(access_flag) {
         Some(flags) => flags,
         None => {
@@ -130,7 +132,6 @@ fn read_one_field(buffer: &mut ByteBuffer, cp: &ConstantPool) -> Result<FieldInf
             )))
         }
     };
-    let name_index = buffer.read_u16()?;
     let name = cp.get_string(&name_index)?;
     let descriptor_index = buffer.read_u16()?;
     let descriptor = cp.get_string(&descriptor_index)?;

@@ -81,56 +81,9 @@ impl ConstantPoolEntry {
     }
 }
 
-//https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-5.html#jvms-5.4.3.5
-#[derive(Debug, PartialEq, Eq)]
-pub enum MethodHandlerKind {
-    GetField,
-    GetStatic,
-    PutField,
-    PutStatic,
-    InvokeVirtual,
-    InvokeStatic,
-    InvokeSpecial,
-    NewInvokeSpecial,
-    InvokeInterface,
-}
-
-impl MethodHandlerKind {
-    fn new(kind: u8) -> Result<MethodHandlerKind> {
-        match kind {
-            1 => Ok(MethodHandlerKind::GetField),
-            2 => Ok(MethodHandlerKind::GetStatic),
-            3 => Ok(MethodHandlerKind::PutField),
-            4 => Ok(MethodHandlerKind::PutStatic),
-            5 => Ok(MethodHandlerKind::InvokeVirtual),
-            6 => Ok(MethodHandlerKind::InvokeSpecial),
-            7 => Ok(MethodHandlerKind::NewInvokeSpecial),
-            8 => Ok(MethodHandlerKind::InvokeInterface),
-            _ => Err(ClassFileError::InvalidMethodHandlerKind(kind)),
-        }
-    }
-}
-impl Display for MethodHandlerKind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MethodHandlerKind::GetField => write!(f, "getfield C.f:T"),
-            MethodHandlerKind::GetStatic => write!(f, "getstatic C.f:T"),
-            MethodHandlerKind::PutField => write!(f, "putfield C.f:T"),
-            MethodHandlerKind::PutStatic => write!(f, "putstatic C.f:T"),
-            MethodHandlerKind::InvokeVirtual => write!(f, "invokevirtual C.m:(A*)T"),
-            MethodHandlerKind::InvokeStatic => write!(f, "invokestatic C.m:(A*)T"),
-            MethodHandlerKind::InvokeSpecial => write!(f, "invokespecial C.m:(A*)T"),
-            MethodHandlerKind::NewInvokeSpecial => {
-                write!(f, "new C; dup; invokespecial C.<init>:(A*)V")
-            }
-            MethodHandlerKind::InvokeInterface => write!(f, "invokeinterface C.m:(A*)T"),
-        }
-    }
-}
-
 //面向32位计算机设计的。所以double和long会占用两个字节，使用空占位符占位，
 #[derive(Debug)]
-enum ConstantPoolPhysicalEntry {
+pub enum ConstantPoolPhysicalEntry {
     Entry(ConstantPoolEntry),
     PlaceHolder,
 }
@@ -139,7 +92,7 @@ enum ConstantPoolPhysicalEntry {
 /// Note that constants are 1-based in java.
 #[derive(Debug, Default)]
 pub struct ConstantPool {
-    entries: Vec<ConstantPoolPhysicalEntry>,
+    pub entries: Vec<ConstantPoolPhysicalEntry>,
 }
 
 impl ConstantPool {
@@ -210,6 +163,9 @@ impl ConstantPool {
     }
 
     pub fn try_get(&self, offset: &ConstantPoolIndex) -> Option<&ConstantPoolEntry> {
+        if *offset == 0 {
+            return None;
+        }
         let index = (offset - 1) as usize;
         if let Some(v) = self.entries.get(index) {
             match v {
@@ -275,7 +231,7 @@ impl ConstantPool {
                 "MethodHandler: {}, {} => ({}), ({})",
                 i,
                 j,
-                MethodHandlerKind::new(*i)?,
+                i,
                 self.fmt_entry(j)?
             ),
             ConstantPoolEntry::MethodType(_) => todo!(),

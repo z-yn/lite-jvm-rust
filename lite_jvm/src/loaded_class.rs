@@ -1,6 +1,8 @@
+use crate::runtime_constant_pool::RuntimeConstantPool;
+use class_file_reader::attribute_info::AttributeInfo;
 use class_file_reader::class_file::ClassAccessFlags;
-use class_file_reader::class_file_reader::read_buffer;
-use class_file_reader::constant_pool::ConstantPool;
+use class_file_reader::field_info::FieldInfo;
+use class_file_reader::method_info::MethodInfo;
 
 pub enum ClassStatus {
     Loaded,
@@ -10,31 +12,28 @@ pub enum ClassStatus {
 
 /// 表示加载的类，加载后该类会经过->链接->初始化过程最终加载完成。
 ///
-pub(crate) struct LoadedClass<'a> {
-    pub(crate) status: ClassStatus,
-    pub(crate) name: String,
-    pub(crate) constant_pool: ConstantPool,
-    pub(crate) access_flags: ClassAccessFlags,
-    pub(crate) super_class: Option<ClassRef<'a>>,
+pub struct Class<'a> {
+    pub status: ClassStatus,
+    pub name: String,
+    //常量池解析
+    pub constant_pool: RuntimeConstantPool,
+    pub access_flags: ClassAccessFlags,
+    //超类解析
+    pub super_class: Option<ClassRef<'a>>,
+    //接口解析
+    pub interfaces: Vec<ClassRef<'a>>,
+    // 先用数组存。后续再看是否需要改成map，以及是否需要改变结构
+    //字段解析
+    pub fields: Vec<FieldInfo>,
+    //方法解析
+    pub methods: Vec<MethodInfo>,
+    //属性解析
+    pub attributes: Vec<AttributeInfo>,
+
+    pub super_class_name: Option<String>,
+    pub interface_names: Vec<String>,
 }
 
-pub(crate) struct ClassesToInitialize<'a> {
-    resolved_class: ClassRef<'a>,
-    pub(crate) to_initialize: Vec<ClassRef<'a>>,
-}
+impl<'a> Class<'a> {}
 
-impl<'a> LoadedClass<'a> {}
-
-//需要一个转换的通用方法。供所有class_load使用。
-pub fn load_class<'a>(bytes: Vec<u8>) -> LoadedClass<'a> {
-    let file = read_buffer(&bytes).unwrap();
-    LoadedClass {
-        status: ClassStatus::Loaded,
-        name: file.this_class_name,
-        constant_pool: file.constant_pool,
-        access_flags: file.access_flags,
-        super_class: None,
-    }
-}
-
-pub type ClassRef<'a> = &'a LoadedClass<'a>;
+pub type ClassRef<'a> = &'a Class<'a>;
