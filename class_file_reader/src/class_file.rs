@@ -45,7 +45,6 @@ impl Default for ClassAccessFlags {
     }
 }
 
-#[allow(dead_code)]
 pub struct ClassFile {
     pub version: ClassFileVersion,
     pub constant_pool: ConstantPool,

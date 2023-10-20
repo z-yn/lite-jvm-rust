@@ -6,6 +6,8 @@ use std::{
 #[derive(Debug)]
 pub enum Exception {
     ClassNotFoundException(String),
+    MethodNotFoundException(String),
+    InvalidAttribute(String),
     NoClassDefFoundError(String),
     ClassPathNotExist(String),
     JarFileNotExist(String),
@@ -34,6 +36,12 @@ impl Display for Exception {
             }
             Exception::ReadJarFileError(e) => {
                 write!(f, "ReadJarFileError: \n caused by {}", e)
+            }
+            Exception::MethodNotFoundException(method_name) => {
+                write!(f, "MethodNotFoundException: {}", method_name)
+            }
+            Exception::InvalidAttribute(msg) => {
+                write!(f, "InvalidAttribute: {}", msg)
             }
         }
     }

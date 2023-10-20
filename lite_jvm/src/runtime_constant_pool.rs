@@ -3,6 +3,7 @@ use class_file_reader::class_file_error::ClassFileError;
 use class_file_reader::constant_pool::{
     ConstantPool, ConstantPoolEntry, ConstantPoolPhysicalEntry,
 };
+use std::f32::consts::E;
 use std::fmt::{Display, Formatter};
 
 //https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-5.html#jvms-5.4.3.5
@@ -232,6 +233,45 @@ impl RuntimeConstantPool {
         RuntimeConstantPool {
             entries: Vec::new(),
         }
+    }
+    pub fn get_string(&self, index: u16) -> Result<String> {
+        if let RuntimeConstantPoolEntry::StringReference(class_name) = self.get(index)? {
+            Ok(class_name.clone())
+        } else {
+            Err(Exception::ReadClassBytesError(Box::new(
+                ClassFileError::InvalidClassData("Should Be StringRef".to_string()),
+            )))
+        }
+    }
+    pub fn get_utf8_string(&self, index: u16) -> Result<String> {
+        if let RuntimeConstantPoolEntry::Utf8(class_name) = self.get(index)? {
+            Ok(class_name.clone())
+        } else {
+            Err(Exception::ReadClassBytesError(Box::new(
+                ClassFileError::InvalidClassData("Should Be Utf8".to_string()),
+            )))
+        }
+    }
+
+    pub fn get_class_name(&self, index: u16) -> Result<String> {
+        if let RuntimeConstantPoolEntry::ClassReference(class_name) = self.get(index)? {
+            Ok(class_name.clone())
+        } else {
+            Err(Exception::ReadClassBytesError(Box::new(
+                ClassFileError::InvalidClassData("Should Be ClassRef".to_string()),
+            )))
+        }
+    }
+    pub(crate) fn get(&self, index: u16) -> Result<&RuntimeConstantPoolEntry> {
+        let offset = (index - 1) as usize;
+        if self.entries.len() >= offset {
+            if let RuntimeConstantPoolPhysicalEntry::Entry(entry) = &self.entries[offset] {
+                return Ok(entry);
+            }
+        }
+        Err(Exception::ReadClassBytesError(Box::new(
+            ClassFileError::InvalidConstantPoolIndexError(index),
+        )))
     }
     pub fn from(cp: &ConstantPool) -> Result<RuntimeConstantPool> {
         let mut runtime_cp = Self::new();

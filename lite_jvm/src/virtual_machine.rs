@@ -1,3 +1,10 @@
+use crate::call_stack::CallStack;
+use crate::jvm_exceptions::Result;
+use crate::loaded_class::{ClassRef, MethodRef};
+use crate::method_area::MethodArea;
+use crate::object_heap::ObjectHeap;
+use typed_arena::Arena;
+
 /// 虚拟机实现。 虚拟机应该是总入口
 ///
 /// Java虚拟机通过使用引导类加载器(BootstrapClassLoader)或者自定义类加载器，
@@ -30,4 +37,43 @@
 /// 每个这样的类或接口都属于单个运行时包。类或接口的运行时包由包名和类或接口的定义加载器决定。   
 ///
 
-pub struct VirtualMachine {}
+pub struct VirtualMachine<'a> {
+    method_area: MethodArea<'a>,
+    object_heap: ObjectHeap,
+    call_stacks: Arena<CallStack>,
+}
+
+impl<'a> VirtualMachine<'a> {
+    pub fn new(heap_size: usize) -> VirtualMachine<'a> {
+        VirtualMachine {
+            method_area: MethodArea::new(),
+            object_heap: ObjectHeap::new(heap_size),
+            call_stacks: Arena::new(),
+        }
+    }
+
+    fn link_class(&self, _class: ClassRef<'a>) -> Result<()> {
+        Ok(())
+    }
+    //类的初始化。需要执行<clinit>方法。初始化一些变量。需要先实现方法执行
+    fn initialize_class(&self, class: ClassRef<'a>) -> Result<()> {
+        Ok(())
+    }
+    pub fn lookup_class(&self, class_name: &str) -> Result<ClassRef> {
+        let class = self.method_area.load_class(class_name)?;
+        self.link_class(class)?;
+        self.initialize_class(class)?;
+        Ok(class)
+    }
+
+    pub fn look_method(
+        &self,
+        class_name: &str,
+        method_name: &str,
+        descriptor: &str,
+    ) -> Result<(ClassRef, MethodRef)> {
+        let class_ref = self.lookup_class(class_name)?;
+        let method_ref = class_ref.get_method_info(method_name, descriptor)?;
+        Ok((class_ref, method_ref))
+    }
+}

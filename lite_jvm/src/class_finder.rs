@@ -147,10 +147,7 @@ mod tests {
 
     #[test]
     fn test_jar_file_class_finding() {
-        let result = JarFileClassPath::new(
-            "/Library/Java/JavaVirtualMachines/jdk1.8.0_202.jdk/Contents/Home/jre/lib/rt.jar",
-        )
-        .unwrap();
+        let result = JarFileClassPath::new("./resources/rt.jar").unwrap();
         let string_file = result.find_class("java/lang/Object").unwrap();
         assert!(string_file.is_some());
         let parsed_files = read_buffer(&string_file.unwrap()).unwrap();

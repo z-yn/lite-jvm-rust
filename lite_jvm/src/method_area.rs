@@ -3,6 +3,8 @@ use crate::class_finder::ClassPath;
 use crate::jvm_exceptions::Result;
 use crate::loaded_class::{Class, ClassRef, ClassStatus};
 use crate::runtime_constant_pool::RuntimeConstantPool;
+use crate::runtime_field_info::RuntimeFieldInfo;
+use crate::runtime_method_info::RuntimeMethodInfo;
 use class_file_reader::class_file::ClassFile;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -18,6 +20,21 @@ pub struct MethodArea<'a> {
     classes: Arena<Class<'a>>,
 }
 impl<'a> MethodArea<'a> {
+    pub fn num_of_classes(&self) -> usize {
+        self.classes.len()
+    }
+
+    pub fn get_mut(&'a mut self, class_ref: ClassRef<'a>) -> Option<&'a mut Class<'a>> {
+        for mut_ref in self.classes.iter_mut() {
+            let v1 = mut_ref as *const Class;
+            let v2 = class_ref as *const Class;
+            if v1 == v2 {
+                return Some(mut_ref);
+            }
+        }
+        None
+    }
+
     pub fn new() -> MethodArea<'a> {
         MethodArea {
             bootstrap_class_loader: RefCell::new(BootstrapClassLoader::new()),
@@ -56,22 +73,30 @@ impl<'a> MethodArea<'a> {
             let result = self.load_class(interface_name)?;
             interfaces.push(result);
         }
+        let constant_pool = RuntimeConstantPool::from(&class_file.constant_pool)?;
+        let mut fields = Vec::new();
+        for field_info in class_file.field_info {
+            fields.push(RuntimeFieldInfo::from(field_info, &constant_pool)?);
+        }
+        let mut methods = Vec::new();
+        for method_info in class_file.method_info {
+            methods.push(RuntimeMethodInfo::from(method_info, &constant_pool)?);
+        }
         let class_ref = self.classes.alloc(Class {
             status: ClassStatus::Loaded,
             name: class_file.this_class_name,
-            constant_pool: RuntimeConstantPool::from(&class_file.constant_pool)?,
+            constant_pool,
             access_flags: class_file.access_flags,
             super_class,
             interfaces,
-            fields: Vec::new(),
-            methods: Vec::new(),
-            attributes: Vec::new(),
+            fields,
+            methods,
             super_class_name: class_file.super_class_name,
             interface_names: class_file.interface_names,
         });
         //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
         let class_ref = unsafe {
-            let class_ptr: *const Class<'a> = class_ref;
+            let class_ptr: *const Class<'_> = class_ref;
             &*class_ptr
         };
         Ok(class_ref)
@@ -101,18 +126,25 @@ mod tests {
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
         use crate::loaded_class::ClassStatus;
         use crate::method_area::MethodArea;
-        let area = MethodArea::new();
+        let mut area = MethodArea::new();
 
         let file_system_path = FileSystemClassPath::new("./resources").unwrap();
         area.add_class_path(Box::new(file_system_path));
-        let rt_jar_path = JarFileClassPath::new(
-            "/Library/Java/JavaVirtualMachines/jdk1.8.0_202.jdk/Contents/Home/jre/lib/rt.jar",
-        )
-        .unwrap();
+        let rt_jar_path = JarFileClassPath::new("./resources/rt.jar").unwrap();
 
         area.add_class_path(Box::new(rt_jar_path));
         let result = area.load_class("HelloWorld").unwrap();
 
         assert!(matches!(result.status, ClassStatus::Loaded));
+        assert_eq!(2, area.num_of_classes());
+
+        let main_method = result
+            .get_method_info("main", "([Ljava/lang/String;)V")
+            .unwrap();
+
+        assert_eq!(main_method.name, "main");
+
+        let option = area.get_mut(result);
+        assert!(option.is_some())
     }
 }
