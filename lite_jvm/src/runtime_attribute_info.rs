@@ -1,12 +1,9 @@
 use crate::jvm_exceptions::{Exception, Result};
-use class_file_reader::attribute_info::AttributeInfo;
-
 use crate::runtime_constant_pool::{RuntimeConstantPool, RuntimeConstantPoolEntry};
 use class_file_reader::cesu8_byte_buffer::ByteBuffer;
 use class_file_reader::class_file_error;
 use indexmap::IndexMap;
 use std::fmt::{Display, Formatter};
-use std::iter::Map;
 
 ///https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-4.html#jvms-4.7.2
 pub enum ConstantValueAttribute {

@@ -1,8 +1,9 @@
 use crate::jvm_exceptions::{Exception, Result};
 use crate::runtime_constant_pool::RuntimeConstantPool;
 use crate::runtime_field_info::RuntimeFieldInfo;
-use crate::runtime_method_info::RuntimeMethodInfo;
+use crate::runtime_method_info::{MethodKey, RuntimeMethodInfo};
 use class_file_reader::class_file::ClassAccessFlags;
+use indexmap::IndexMap;
 
 pub enum ClassStatus {
     Loaded,
@@ -21,15 +22,17 @@ pub struct Class<'a> {
     //超类解析
     pub super_class: Option<ClassRef<'a>>,
     //接口解析
-    pub interfaces: Vec<ClassRef<'a>>,
+    pub interfaces: IndexMap<&'a str, ClassRef<'a>>,
     // 先用数组存。后续再看是否需要改成map，以及是否需要改变结构
     //字段解析
-    pub fields: Vec<RuntimeFieldInfo>,
+    pub fields: IndexMap<&'a str, RuntimeFieldInfo>,
     //方法解析
-    pub methods: Vec<RuntimeMethodInfo>,
+    pub methods: IndexMap<MethodKey<'a>, RuntimeMethodInfo>,
 
     pub super_class_name: Option<String>,
     pub interface_names: Vec<String>,
+
+    pub total_num_of_fields: usize,
 }
 
 impl<'a> Class<'a> {
@@ -38,27 +41,26 @@ impl<'a> Class<'a> {
         method_name: &str,
         descriptor: &str,
     ) -> Result<MethodRef<'a>> {
-        for method in &self.methods {
-            if method.name == method_name && method.descriptor == descriptor {
-                //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
-                let method_ref = unsafe {
-                    let const_ptr: *const RuntimeMethodInfo = method;
-                    &*const_ptr
-                };
-                return Ok(method_ref);
-            }
+        if let Some(method) = self.methods.get(&MethodKey::new(method_name, descriptor)) {
+            //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
+            let method_ref = unsafe {
+                let const_ptr: *const RuntimeMethodInfo = method;
+                &*const_ptr
+            };
+            return Ok(method_ref);
         }
+
         //查找父类
         if let Some(supper_class) = self.super_class {
-            for method in &supper_class.methods {
+            for (_, method) in &supper_class.methods {
                 if method.name == method_name && method.descriptor == descriptor {
                     return Ok(method);
                 }
             }
         }
         //查找接口
-        for interface in &self.interfaces {
-            for method in &interface.methods {
+        for (_, interface) in &self.interfaces {
+            for (_, method) in &interface.methods {
                 if method.name == method_name && method.descriptor == descriptor {
                     return Ok(method);
                 }
@@ -71,3 +73,5 @@ impl<'a> Class<'a> {
 pub type ClassRef<'a> = &'a Class<'a>;
 
 pub type MethodRef<'a> = &'a RuntimeMethodInfo;
+
+pub type FieldRef<'a> = &'a RuntimeFieldInfo;

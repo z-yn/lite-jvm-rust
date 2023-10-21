@@ -9,4 +9,6 @@ edition = "2021"
 class_file_reader = {path = "../class_file_reader"}
 zip = { version = "0.6.6", features = ["deflate"] }
 typed-arena = "2.0.2"
-indexmap = "1.9.2"
+indexmap = "2.0.2"
+bitfield-struct = "0.5.4"
+bitflags = "2.4.1"

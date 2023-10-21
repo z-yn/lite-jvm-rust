@@ -3,7 +3,6 @@ use class_file_reader::class_file_error::ClassFileError;
 use class_file_reader::constant_pool::{
     ConstantPool, ConstantPoolEntry, ConstantPoolPhysicalEntry,
 };
-use std::f32::consts::E;
 use std::fmt::{Display, Formatter};
 
 //https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-5.html#jvms-5.4.3.5

@@ -40,3 +40,24 @@ impl RuntimeMethodInfo {
         })
     }
 }
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+pub struct MethodKey<'a>(&'a str, &'a str);
+
+impl<'a> MethodKey<'a> {
+    pub fn new(name: &'a str, descriptor: &'a str) -> MethodKey<'a> {
+        MethodKey(name, descriptor)
+    }
+
+    pub fn by_method(method: &RuntimeMethodInfo) -> MethodKey<'a> {
+        let name = unsafe {
+            let str_ptr: *const str = method.name.as_str();
+            &*str_ptr
+        };
+        let descriptor = unsafe {
+            let str_ptr: *const str = method.descriptor.as_str();
+            &*str_ptr
+        };
+        MethodKey(name, descriptor)
+    }
+}

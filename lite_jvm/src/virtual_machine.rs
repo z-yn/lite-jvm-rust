@@ -39,7 +39,7 @@ use typed_arena::Arena;
 
 pub struct VirtualMachine<'a> {
     method_area: MethodArea<'a>,
-    object_heap: ObjectHeap,
+    object_heap: ObjectHeap<'a>,
     call_stacks: Arena<CallStack>,
 }
 
@@ -56,10 +56,14 @@ impl<'a> VirtualMachine<'a> {
         Ok(())
     }
     //类的初始化。需要执行<clinit>方法。初始化一些变量。需要先实现方法执行
-    fn initialize_class(&self, class: ClassRef<'a>) -> Result<()> {
+    fn initialize_class(&'a mut self, class: ClassRef<'a>) -> Result<()> {
+        if let Ok(method) = class.get_method_info("<clinit>", "()V") {
+            let class = self.method_area.get_mut(class).unwrap();
+            //TODO 执行类初始化方法。将计算的字段信息存储到类中。需要先实现方法执行
+        }
         Ok(())
     }
-    pub fn lookup_class(&self, class_name: &str) -> Result<ClassRef> {
+    pub fn lookup_class(&'a mut self, class_name: &str) -> Result<ClassRef> {
         let class = self.method_area.load_class(class_name)?;
         self.link_class(class)?;
         self.initialize_class(class)?;
@@ -67,7 +71,7 @@ impl<'a> VirtualMachine<'a> {
     }
 
     pub fn look_method(
-        &self,
+        &'a mut self,
         class_name: &str,
         method_name: &str,
         descriptor: &str,
