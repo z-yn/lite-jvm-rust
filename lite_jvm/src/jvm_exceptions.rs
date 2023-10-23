@@ -7,11 +7,13 @@ use std::{
 pub enum Exception {
     ClassNotFoundException(String),
     MethodNotFoundException(String),
+    FieldNotFoundException(String),
     InvalidAttribute(String),
     NoClassDefFoundError(String),
     ClassPathNotExist(String),
     JarFileNotExist(String),
     ReadClassBytesError(Box<dyn Error>),
+    ExecuteCodeError(Box<dyn Error>),
     ReadJarFileError(Box<dyn Error>),
 }
 
@@ -20,6 +22,10 @@ impl Display for Exception {
         match self {
             Exception::ClassNotFoundException(class_name) => {
                 write!(f, "ClassNotFoundException:{}", class_name)
+            }
+
+            Exception::FieldNotFoundException(field_name) => {
+                write!(f, "FieldNotFoundException:{}", field_name)
             }
 
             Exception::NoClassDefFoundError(class_name) => {
@@ -42,6 +48,9 @@ impl Display for Exception {
             }
             Exception::InvalidAttribute(msg) => {
                 write!(f, "InvalidAttribute: {}", msg)
+            }
+            Exception::ExecuteCodeError(e) => {
+                write!(f, "ExecuteCodeError: \n caused by {}", e)
             }
         }
     }

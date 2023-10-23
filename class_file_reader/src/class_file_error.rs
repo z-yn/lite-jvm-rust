@@ -15,6 +15,8 @@ pub enum ClassFileError {
 
     UnexpectedEndOfData,
     InvalidCesu8String,
+
+    InvalidCode(String),
 }
 
 impl Display for ClassFileError {
@@ -34,6 +36,9 @@ impl Display for ClassFileError {
             ClassFileError::InvalidCesu8String => write!(f, "invalid cesu8 string"),
             ClassFileError::ConstantPoolTagNotSupport(tag) => {
                 write!(f, "constant pool tag not support: {tag}")
+            }
+            ClassFileError::InvalidCode(msg) => {
+                write!(f, "invalid code : {msg}")
             }
         }
     }

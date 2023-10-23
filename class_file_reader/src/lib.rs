@@ -6,4 +6,5 @@ pub mod class_file_reader;
 pub mod class_file_version;
 pub mod constant_pool;
 pub mod field_info;
+pub mod instruction;
 pub mod method_info;

@@ -23,7 +23,6 @@ pub struct Class<'a> {
     pub super_class: Option<ClassRef<'a>>,
     //接口解析
     pub interfaces: IndexMap<&'a str, ClassRef<'a>>,
-    // 先用数组存。后续再看是否需要改成map，以及是否需要改变结构
     //字段解析
     pub fields: IndexMap<&'a str, RuntimeFieldInfo>,
     //方法解析

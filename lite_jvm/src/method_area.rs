@@ -61,15 +61,16 @@ impl<'a> MethodArea<'a> {
     }
 
     fn do_class_loading(&self, class_file: ClassFile) -> Result<ClassRef<'a>> {
-        let mut total_num_of_fields: usize = class_file.method_info.len();
+        let mut super_num_of_fields: usize = 0;
         //解析super_class
         let super_class = if let Some(super_class_name) = &class_file.super_class_name {
             let result = self.load_class(&super_class_name)?;
-            total_num_of_fields += result.total_num_of_fields;
+            super_num_of_fields = result.total_num_of_fields;
             Some(result)
         } else {
             None
         };
+
         let mut interfaces = IndexMap::new();
         //解析加载接口
         for interface_name in &class_file.interface_names {
@@ -83,13 +84,18 @@ impl<'a> MethodArea<'a> {
         }
         let constant_pool = RuntimeConstantPool::from(&class_file.constant_pool)?;
         let mut fields = IndexMap::new();
+        let mut method_offset = 1;
         for field_info in class_file.field_info {
-            let field = RuntimeFieldInfo::from(field_info, &constant_pool)?;
+            let mut field = RuntimeFieldInfo::from(field_info, &constant_pool)?;
             //我会确保map的key与Value中的name保持一致
             let key = unsafe {
                 let str_ptr: *const str = field.name.as_str();
                 &*str_ptr
             };
+            if !field.is_static() {
+                method_offset += 1;
+                field.offset = super_num_of_fields + method_offset;
+            }
             fields.insert(key, field);
         }
         let mut methods = IndexMap::new();
@@ -98,6 +104,7 @@ impl<'a> MethodArea<'a> {
             methods.insert(MethodKey::by_method(&method), method);
         }
         let class_ref = self.classes.alloc(Class {
+            total_num_of_fields: super_num_of_fields + methods.len(),
             status: ClassStatus::Loaded,
             name: class_file.this_class_name,
             constant_pool,
@@ -108,7 +115,6 @@ impl<'a> MethodArea<'a> {
             methods,
             super_class_name: class_file.super_class_name,
             interface_names: class_file.interface_names,
-            total_num_of_fields,
         });
         //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
         let class_ref = unsafe {
@@ -136,13 +142,13 @@ impl<'a> MethodArea<'a> {
 }
 
 mod tests {
-    use crate::object_heap::ObjectHeap;
 
     #[test]
     fn test_class_load() {
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
         use crate::loaded_class::ClassStatus;
         use crate::method_area::MethodArea;
+
         let mut area = MethodArea::new();
 
         let file_system_path = FileSystemClassPath::new("./resources").unwrap();
@@ -151,10 +157,6 @@ mod tests {
 
         area.add_class_path(Box::new(rt_jar_path));
         let result = area.load_class("FieldTest").unwrap();
-
-        let mut heap = ObjectHeap::new(1024);
-        let alloc_result = heap.allocate_object(result);
-        assert!(alloc_result.is_some());
 
         assert!(matches!(result.status, ClassStatus::Loaded));
         assert_eq!(2, area.num_of_classes());

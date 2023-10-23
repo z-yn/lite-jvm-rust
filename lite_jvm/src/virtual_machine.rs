@@ -40,7 +40,7 @@ use typed_arena::Arena;
 pub struct VirtualMachine<'a> {
     method_area: MethodArea<'a>,
     object_heap: ObjectHeap<'a>,
-    call_stacks: Arena<CallStack>,
+    call_stacks: Arena<CallStack<'a>>,
 }
 
 impl<'a> VirtualMachine<'a> {

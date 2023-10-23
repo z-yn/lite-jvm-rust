@@ -2,7 +2,7 @@ use crate::class_file_error::{ClassFileError, Result};
 use cesu8::from_java_cesu8;
 pub struct ByteBuffer<'a> {
     buffer: &'a [u8],
-    position: usize,
+    pub position: usize,
 }
 
 impl<'a> ByteBuffer<'a> {
@@ -82,9 +82,13 @@ impl<'a> ByteBuffer<'a> {
         self.advance(len)
     }
 
-    #[allow(dead_code)]
     pub fn has_more_data(&self) -> bool {
         self.position < self.buffer.len()
+    }
+
+    pub fn jump_to(&mut self, position: usize) {
+        assert!(position <= self.buffer.len());
+        self.position = position;
     }
 }
 

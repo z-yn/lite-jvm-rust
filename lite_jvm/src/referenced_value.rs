@@ -1,4 +1,6 @@
+use crate::jvm_exceptions::{Exception, Result};
 use crate::loaded_class::ClassRef;
+use crate::runtime_field_info::RuntimeFieldInfo;
 use bitfield_struct::bitfield;
 use std::marker::PhantomData;
 use std::mem::size_of;
@@ -23,6 +25,7 @@ pub enum PrimaryType {
 pub enum Value<'a> {
     #[default]
     Uninitialized,
+    Boolean(bool),
     Byte(i8),
     Short(i16),
     Int(i32),
@@ -35,6 +38,7 @@ pub enum Value<'a> {
     ArrayRef(ReferencedValue<'a>),
     Null,
 }
+
 /// 引用对象分配
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub struct ReferencedValue<'a> {
@@ -76,6 +80,92 @@ impl<'a> ReferencedValue<'a> {
             data: start_ptr as *mut u8,
             _marker: Default::default(),
         }
+    }
+    pub(crate) fn get_class(&self) -> ClassRef {
+        unsafe {
+            let class_ref_ptr = self.data.add(ALLOC_HEADER_SIZE);
+            std::ptr::read(class_ref_ptr as *const ObjectHeader).class_ref
+        }
+    }
+
+    //TODO 校验Value与RuntimeFieldInfo是否一致
+    unsafe fn write_value_at_offset(&self, field: &RuntimeFieldInfo, value: &Value<'a>) {
+        let offset = field.offset;
+        assert!(offset > 0);
+        let pointer = self.data.add((offset - 1) * 8);
+        match value {
+            Value::Byte(v) => std::ptr::write(pointer as *mut i8, *v),
+            Value::Short(v) => std::ptr::write(pointer as *mut i16, *v),
+            Value::Int(v) => std::ptr::write(pointer as *mut i32, *v),
+            Value::Long(v) => std::ptr::write(pointer as *mut i64, *v),
+            Value::Char(v) => std::ptr::write(pointer as *mut u16, *v),
+            Value::Float(v) => std::ptr::write(pointer as *mut f32, *v),
+            Value::Double(v) => std::ptr::write(pointer as *mut f64, *v),
+            Value::ReturnAddress(v) => std::ptr::write(pointer as *mut u16, *v),
+            Value::ObjectRef(v) => std::ptr::write(pointer as *mut ReferencedValue, *v),
+            Value::ArrayRef(v) => std::ptr::write(pointer as *mut ReferencedValue, *v),
+            Value::Boolean(v) => std::ptr::write(pointer as *mut bool, *v),
+            _ => std::ptr::write(pointer as *mut u64, 0),
+        }
+    }
+
+    //TODO 校验Value与RuntimeFieldInfo是否一致
+    unsafe fn read_value_at_offset(&self, field: &RuntimeFieldInfo) -> Value<'a> {
+        let offset = field.offset;
+        assert!(offset > 0);
+        let pointer = self.data.add((offset - 1) * 8);
+        match field.descriptor.as_str() {
+            "B" => Value::Byte(std::ptr::read(pointer as *mut i8)),
+            "C" => Value::Char(std::ptr::read(pointer as *mut u16)),
+            "D" => Value::Double(std::ptr::read(pointer as *mut f64)),
+            "F" => Value::Float(std::ptr::read(pointer as *mut f32)),
+            "I" => Value::Int(std::ptr::read(pointer as *mut i32)),
+            "J" => Value::Long(std::ptr::read(pointer as *mut i64)),
+            "S" => Value::Short(std::ptr::read(pointer as *mut i16)),
+            "Z" => Value::Boolean(std::ptr::read(pointer as *mut bool)),
+            other => {
+                if other.starts_with("[") {
+                    Value::ArrayRef(std::ptr::read(pointer as *mut ReferencedValue))
+                } else {
+                    Value::ObjectRef(std::ptr::read(pointer as *mut ReferencedValue))
+                }
+            }
+        }
+    }
+
+    //
+    pub(crate) fn set_field(&self, name: &str, value: &Value<'a>) -> Result<()> {
+        //先查找自身类中的field
+        let class = self.get_class();
+        if let Some(field) = class.fields.get(name) {
+            unsafe {
+                self.write_value_at_offset(field, value);
+            }
+            return Ok(());
+        }
+        if let Some(super_class) = class.super_class {
+            if let Some(field) = super_class.fields.get(name) {
+                unsafe {
+                    self.write_value_at_offset(field, value);
+                }
+                return Ok(());
+            }
+        }
+        Err(Exception::FieldNotFoundException(name.to_string()))
+    }
+
+    pub(crate) fn get_field(&self, name: &str) -> Result<Value<'a>> {
+        //先查找自身类中的field
+        let class = self.get_class();
+        if let Some(field) = class.fields.get(name) {
+            return unsafe { Ok(self.read_value_at_offset(field)) };
+        }
+        if let Some(super_class) = class.super_class {
+            if let Some(field) = super_class.fields.get(name) {
+                return unsafe { Ok(self.read_value_at_offset(field)) };
+            }
+        }
+        Err(Exception::FieldNotFoundException(name.to_string()))
     }
 }
 

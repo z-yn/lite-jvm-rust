@@ -9,9 +9,14 @@ pub struct RuntimeFieldInfo {
     pub name: String,
     pub descriptor: String,
     pub constant_value: Option<ConstantValueAttribute>,
+    //内存中的索引值，从1开始。0表示未设置索引,即静态方法位置
+    pub offset: usize,
 }
 
 impl RuntimeFieldInfo {
+    pub fn is_static(&self) -> bool {
+        self.access_flags.contains(FieldAccessFlags::STATIC)
+    }
     pub fn from(field_info: FieldInfo, cp: &RuntimeConstantPool) -> Result<RuntimeFieldInfo> {
         let mut constant_value: Option<ConstantValueAttribute> = None;
         for attr in &field_info.attributes {
@@ -24,6 +29,7 @@ impl RuntimeFieldInfo {
             name: field_info.name,
             descriptor: field_info.descriptor,
             constant_value,
+            offset: 0,
         })
     }
 }
