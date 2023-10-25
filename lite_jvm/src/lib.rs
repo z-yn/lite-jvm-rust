@@ -10,7 +10,7 @@ pub(crate) mod memory_trunk;
 pub mod method_area;
 pub mod object_heap;
 pub mod program_counter;
-pub mod referenced_value;
+pub mod reference_value;
 pub mod runtime_attribute_info;
 pub mod runtime_constant_pool;
 pub mod runtime_field_info;

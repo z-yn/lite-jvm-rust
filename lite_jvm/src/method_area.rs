@@ -13,8 +13,6 @@ use typed_arena::Arena;
 
 /// 方法区的功能抽象，用来管理类的加载->链接->初始化。
 /// 需要一个classloader以外的管理者进行对类统一管理。
-/// 先暂时不考虑多线程。因为每个线程需要一份类加载器
-
 pub struct MethodArea<'a> {
     bootstrap_class_loader: RefCell<BootstrapClassLoader<'a>>,
     custom_class_loader: HashMap<&'a str, ClassRef<'a>>,
@@ -84,7 +82,7 @@ impl<'a> MethodArea<'a> {
         }
         let constant_pool = RuntimeConstantPool::from(&class_file.constant_pool)?;
         let mut fields = IndexMap::new();
-        let mut method_offset = 1;
+        let mut field_offset = 0;
         for field_info in class_file.field_info {
             let mut field = RuntimeFieldInfo::from(field_info, &constant_pool)?;
             //我会确保map的key与Value中的name保持一致
@@ -93,8 +91,8 @@ impl<'a> MethodArea<'a> {
                 &*str_ptr
             };
             if !field.is_static() {
-                method_offset += 1;
-                field.offset = super_num_of_fields + method_offset;
+                field_offset += 1;
+                field.offset = super_num_of_fields + field_offset;
             }
             fields.insert(key, field);
         }
@@ -104,7 +102,7 @@ impl<'a> MethodArea<'a> {
             methods.insert(MethodKey::by_method(&method), method);
         }
         let class_ref = self.classes.alloc(Class {
-            total_num_of_fields: super_num_of_fields + methods.len(),
+            total_num_of_fields: super_num_of_fields + fields.len(),
             status: ClassStatus::Loaded,
             name: class_file.this_class_name,
             constant_pool,

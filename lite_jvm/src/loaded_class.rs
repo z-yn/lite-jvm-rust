@@ -35,6 +35,28 @@ pub struct Class<'a> {
 }
 
 impl<'a> Class<'a> {
+    pub(crate) fn get_field(&self, offset: usize) -> Result<FieldRef<'a>> {
+        assert!(offset < self.total_num_of_fields);
+        let super_class_offset = if let Some(class_ref) = self.super_class {
+            if offset < class_ref.total_num_of_fields {
+                return Ok(class_ref.fields.get_index(offset).unwrap().1);
+            }
+            class_ref.total_num_of_fields
+        } else {
+            0
+        };
+        let method = self
+            .fields
+            .get_index(offset - super_class_offset)
+            .expect("")
+            .1;
+        //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
+        let method_ref = unsafe {
+            let const_ptr: *const RuntimeFieldInfo = method;
+            &*const_ptr
+        };
+        return Ok(method_ref);
+    }
     pub(crate) fn get_method_info(
         &self,
         method_name: &str,
