@@ -57,6 +57,18 @@ impl<'a> Class<'a> {
         };
         return Ok(method_ref);
     }
+
+    pub(crate) fn is_subclass_of(&self, class_name: &str) -> bool {
+        if self.name == class_name {
+            return true;
+        }
+        if let Some(super_class) = self.super_class {
+            if super_class.is_subclass_of(class_name) {
+                return true;
+            }
+        }
+        false
+    }
     pub(crate) fn get_method_info(
         &self,
         method_name: &str,

@@ -15,4 +15,5 @@ pub mod runtime_attribute_info;
 pub mod runtime_constant_pool;
 pub mod runtime_field_info;
 pub mod runtime_method_info;
+pub(crate) mod value_stack;
 pub mod virtual_machine;

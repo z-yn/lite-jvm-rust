@@ -3,6 +3,7 @@ use crate::jvm_exceptions::Result;
 use crate::loaded_class::{ClassRef, MethodRef};
 use crate::method_area::MethodArea;
 use crate::object_heap::ObjectHeap;
+use crate::reference_value::{ArrayElement, ArrayReference, ObjectReference};
 use typed_arena::Arena;
 
 /// 虚拟机实现。 虚拟机应该是总入口
@@ -56,14 +57,14 @@ impl<'a> VirtualMachine<'a> {
         Ok(())
     }
     //类的初始化。需要执行<clinit>方法。初始化一些变量。需要先实现方法执行
-    fn initialize_class(&'a mut self, class: ClassRef<'a>) -> Result<()> {
+    fn initialize_class(&mut self, class: ClassRef<'a>) -> Result<()> {
         if let Ok(method) = class.get_method_info("<clinit>", "()V") {
-            let class = self.method_area.get_mut(class).unwrap();
+            // let class = self.method_area.get_mut(class).unwrap();
             //TODO 执行类初始化方法。将计算的字段信息存储到类中。需要先实现方法执行
         }
         Ok(())
     }
-    pub fn lookup_class(&'a mut self, class_name: &str) -> Result<ClassRef> {
+    pub fn lookup_class(&mut self, class_name: &str) -> Result<ClassRef<'a>> {
         let class = self.method_area.load_class(class_name)?;
         self.link_class(class)?;
         self.initialize_class(class)?;
@@ -71,7 +72,7 @@ impl<'a> VirtualMachine<'a> {
     }
 
     pub fn look_method(
-        &'a mut self,
+        &mut self,
         class_name: &str,
         method_name: &str,
         descriptor: &str,
@@ -79,5 +80,19 @@ impl<'a> VirtualMachine<'a> {
         let class_ref = self.lookup_class(class_name)?;
         let method_ref = class_ref.get_method_info(method_name, descriptor)?;
         Ok((class_ref, method_ref))
+    }
+
+    pub fn new_object(&mut self, class_ref: ClassRef) -> ObjectReference<'static> {
+        self.object_heap.allocate_object(class_ref).unwrap()
+    }
+
+    pub fn new_array(
+        &mut self,
+        array_element: ArrayElement,
+        length: usize,
+    ) -> ArrayReference<'static> {
+        self.object_heap
+            .allocate_array(array_element, length)
+            .unwrap()
     }
 }

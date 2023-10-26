@@ -127,7 +127,7 @@ fn read_code_bytes(
         let catch_type = if catch_type_index == 0 {
             None
         } else {
-            Some(cp.get_class_name(catch_type_index).unwrap())
+            Some(cp.get_class_name(catch_type_index).unwrap().to_string())
         };
         exception_table.push(ExceptionTable {
             start_pc,
@@ -213,7 +213,7 @@ pub(crate) fn get_attr_as_exception(bytes: &Vec<u8>, cp: &RuntimeConstantPool) -
     (0..number_of_exceptions)
         .map(|_| {
             let exception_index = buffer.read_u16().unwrap();
-            cp.get_class_name(exception_index).unwrap()
+            cp.get_class_name(exception_index).unwrap().to_string()
         })
         .collect()
 }

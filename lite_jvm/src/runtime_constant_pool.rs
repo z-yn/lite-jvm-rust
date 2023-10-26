@@ -252,9 +252,9 @@ impl RuntimeConstantPool {
         }
     }
 
-    pub fn get_class_name(&self, index: u16) -> Result<String> {
+    pub fn get_class_name(&self, index: u16) -> Result<&str> {
         if let RuntimeConstantPoolEntry::ClassReference(class_name) = self.get(index)? {
-            Ok(class_name.clone())
+            Ok(class_name)
         } else {
             Err(Exception::ReadClassBytesError(Box::new(
                 ClassFileError::InvalidClassData("Should Be ClassRef".to_string()),

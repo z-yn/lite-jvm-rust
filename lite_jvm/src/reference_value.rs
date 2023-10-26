@@ -34,7 +34,6 @@ pub enum Value<'a> {
     Char(u16),
     Float(f32),
     Double(f64),
-    ReturnAddress(u16),
     ObjectRef(ObjectReference<'a>),
     ArrayRef(ArrayReference<'a>),
     Null,
@@ -117,6 +116,27 @@ macro_rules! read_value_at {
     };
 }
 
+macro_rules! read_nullable_value_at {
+    ($name:ident,$variant:ident, $type:ty) => {
+        pub(crate) unsafe fn $name(&self, index: usize) -> Result<Value<'static>> {
+            let total_fields = self.get_data_length();
+            if index >= total_fields {
+                return Err(Exception::ExecuteCodeError(Box::new(
+                    AllocateError::IndexOutOfBounds,
+                )));
+            }
+            let offset = self.data_offset() + 8 * index;
+            let pointer = self.data.add(offset);
+            let data = std::ptr::read(pointer as *mut u64);
+            if data == 0 {
+                Ok(Value::Null)
+            } else {
+                Ok(Value::$variant(std::ptr::read(pointer as *mut $type)))
+            }
+        }
+    };
+}
+
 macro_rules! write_value_at {
     ($name:ident,$variant:ident, $type:ty) => {
         pub(crate) unsafe fn $name(&self, index: usize, value: &Value<'a>) -> Result<()> {
@@ -135,6 +155,34 @@ macro_rules! write_value_at {
                 Err(Exception::ExecuteCodeError(Box::new(
                     AllocateError::ValueTypeError,
                 )))
+            }
+        }
+    };
+}
+
+macro_rules! write_nullable_value_at {
+    ($name:ident,$variant:ident, $type:ty) => {
+        pub(crate) unsafe fn $name(&self, index: usize, value: &Value<'a>) -> Result<()> {
+            let total_fields = self.get_data_length();
+            if index >= total_fields {
+                return Err(Exception::ExecuteCodeError(Box::new(
+                    AllocateError::IndexOutOfBounds,
+                )));
+            }
+            let offset = self.data_offset() + 8 * index;
+            let pointer = self.data.add(offset);
+            match value {
+                Value::$variant(v) => {
+                    std::ptr::write(pointer as *mut $type, *v);
+                    Ok(())
+                }
+                Value::Null => {
+                    std::ptr::write(pointer as *mut u64, 0);
+                    Ok(())
+                }
+                _ => Err(Exception::ExecuteCodeError(Box::new(
+                    AllocateError::ValueTypeError,
+                ))),
             }
         }
     };
@@ -174,7 +222,35 @@ impl ReferenceValueType {
 pub enum ArrayElement<'a> {
     PrimaryValue(PrimaryType),
     ClassReference(ClassRef<'a>),
-    Array,
+    Array(Box<ArrayElement<'a>>),
+}
+
+impl<'a> ArrayElement<'a> {
+    fn is_subclass_of(&self, target_element_type: &ArrayElement<'a>) -> bool {
+        match self {
+            ArrayElement::PrimaryValue(my_type) => {
+                if let ArrayElement::PrimaryValue(target) = target_element_type {
+                    my_type == target
+                } else {
+                    false
+                }
+            }
+            ArrayElement::ClassReference(class_ref) => {
+                if let ArrayElement::ClassReference(target) = target_element_type {
+                    class_ref.is_subclass_of(&target.name)
+                } else {
+                    false
+                }
+            }
+            ArrayElement::Array(inner) => {
+                if let ArrayElement::Array(target) = target_element_type {
+                    inner.is_subclass_of(target)
+                } else {
+                    false
+                }
+            }
+        }
+    }
 }
 struct ArrayHeader<'a> {
     element: ArrayElement<'a>,
@@ -197,6 +273,10 @@ impl<'a> ArrayReference<'a> {
         self.get_array_header().element
     }
 
+    pub(crate) fn is_instance_of(&self, target_type: &ArrayElement<'a>) -> bool {
+        self.get_array_type().is_subclass_of(target_type)
+    }
+
     read_value_at!(read_byte, Byte, i8);
     read_value_at!(read_int, Int, i32);
     read_value_at!(read_char, Char, u16);
@@ -205,8 +285,8 @@ impl<'a> ArrayReference<'a> {
     read_value_at!(read_float, Float, f32);
     read_value_at!(read_double, Double, f64);
     read_value_at!(read_boolean, Boolean, bool);
-    read_value_at!(read_object, ObjectRef, ObjectReference<'static>);
-    read_value_at!(read_array, ArrayRef, ArrayReference<'static>);
+    read_nullable_value_at!(read_object, ObjectRef, ObjectReference<'static>);
+    read_nullable_value_at!(read_array, ArrayRef, ArrayReference<'static>);
 
     write_value_at!(write_byte, Byte, i8);
     write_value_at!(write_int, Int, i32);
@@ -216,15 +296,15 @@ impl<'a> ArrayReference<'a> {
     write_value_at!(write_float, Float, f32);
     write_value_at!(write_double, Double, f64);
     write_value_at!(write_boolean, Boolean, bool);
-    write_value_at!(write_object, ObjectRef, ObjectReference<'a>);
-    write_value_at!(write_array, ArrayRef, ArrayReference<'a>);
+    write_nullable_value_at!(write_object, ObjectRef, ObjectReference<'a>);
+    write_nullable_value_at!(write_array, ArrayRef, ArrayReference<'a>);
 
     pub(crate) fn new_array(
         element: ArrayElement,
         array_size: usize,
         start_ptr: *const u8,
         size: usize,
-    ) -> ObjectReference<'a> {
+    ) -> ArrayReference<'a> {
         unsafe {
             let next_ptr = write_allocate_header(
                 start_ptr,
@@ -240,7 +320,7 @@ impl<'a> ArrayReference<'a> {
                 },
             );
         }
-        ObjectReference {
+        ArrayReference {
             data: start_ptr as *mut u8,
             _marker: Default::default(),
         }
@@ -278,7 +358,7 @@ impl<'a> ReferenceValue for ArrayReference<'a> {
                     PrimaryType::Boolean => self.write_boolean(offset, value),
                 },
                 ArrayElement::ClassReference(_) => self.write_object(offset, value),
-                ArrayElement::Array => self.write_array(offset, value),
+                ArrayElement::Array(_) => self.write_array(offset, value),
             }
         }
     }
@@ -301,7 +381,7 @@ impl<'a> ReferenceValue for ArrayReference<'a> {
                     PrimaryType::Boolean => self.read_boolean(offset),
                 },
                 ArrayElement::ClassReference(_) => self.read_object(offset),
-                ArrayElement::Array => self.read_array(offset),
+                ArrayElement::Array(_) => self.read_array(offset),
             }
         }
     }
@@ -402,6 +482,10 @@ impl<'a> ObjectReference<'a> {
     read_value_at!(read_boolean, Boolean, bool);
     read_value_at!(read_object, ObjectRef, ObjectReference);
     read_value_at!(read_array, ArrayRef, ArrayReference);
+
+    pub fn is_instance_of(&self, class_ref: ClassRef<'a>) -> bool {
+        self.get_class().is_subclass_of(&class_ref.name)
+    }
 }
 
 impl<'a> ReferenceValue for ObjectReference<'a> {

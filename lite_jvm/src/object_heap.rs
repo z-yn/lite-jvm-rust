@@ -17,7 +17,7 @@ impl<'a> ObjectHeap<'a> {
         }
     }
 
-    pub fn allocate_object(&mut self, class: ClassRef<'a>) -> Option<ObjectReference<'a>> {
+    pub fn allocate_object(&mut self, class: ClassRef) -> Option<ObjectReference<'static>> {
         let size = size_of_object(class);
         self.memory
             .alloc(size)
@@ -28,7 +28,7 @@ impl<'a> ObjectHeap<'a> {
         &mut self,
         array_element: ArrayElement,
         length: usize,
-    ) -> Option<ObjectReference<'a>> {
+    ) -> Option<ArrayReference<'static>> {
         let size = size_of_array(length);
         self.memory
             .alloc(size)
