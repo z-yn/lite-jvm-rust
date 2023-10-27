@@ -1,10 +1,9 @@
-use crate::jvm_exceptions::{Exception, Result};
+use crate::jvm_error::{VmError, VmExecResult};
 use crate::loaded_class::{ClassRef, FieldRef};
 
 use bitfield_struct::bitfield;
 use std::marker::PhantomData;
 use std::mem::size_of;
-use thiserror::Error;
 
 ///https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-2.html#jvms-2.2
 ///
@@ -43,10 +42,10 @@ pub trait ReferenceValue {
     fn get_data_length(&self) -> usize;
     fn data_offset(&self) -> usize;
     fn get_header(&self) -> AllocateHeader;
-    fn set_field_by_name(&self, name: &str, value: &Value<'_>) -> Result<()>;
-    fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> Result<()>;
-    fn get_field_by_name(&self, name: &str) -> Result<Value<'static>>;
-    fn get_field_by_offset(&self, offset: usize) -> Result<Value<'static>>;
+    fn set_field_by_name(&self, name: &str, value: &Value<'_>) -> VmExecResult<()>;
+    fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> VmExecResult<()>;
+    fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'static>>;
+    fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'static>>;
 }
 
 //数组引用分配
@@ -86,28 +85,16 @@ const fn align_to_8_bytes(required_size: usize) -> usize {
         n => required_size + (8 - n),
     }
 }
-
-#[derive(Error, Eq, PartialEq, Debug)]
-pub enum AllocateError {
-    #[error("value type error")]
-    ValueTypeError,
-
-    #[error("index out of bounds")]
-    IndexOutOfBounds,
-}
-
 pub(crate) const ALLOC_HEADER_SIZE: usize = align_to_8_bytes(size_of::<AllocateHeader>());
 pub(crate) const OBJECT_HEADER_SIZE: usize = align_to_8_bytes(size_of::<ObjectHeader>());
 pub(crate) const ARRAY_HEADER_SIZE: usize = align_to_8_bytes(size_of::<ArrayHeader>());
 
 macro_rules! read_value_at {
     ($name:ident,$variant:ident, $type:ty) => {
-        pub(crate) unsafe fn $name(&self, index: usize) -> Result<Value<'static>> {
+        pub(crate) unsafe fn $name(&self, index: usize) -> VmExecResult<Value<'static>> {
             let total_fields = self.get_data_length();
             if index >= total_fields {
-                return Err(Exception::ExecuteCodeError(Box::new(
-                    AllocateError::IndexOutOfBounds,
-                )));
+                return Err(VmError::IndexOutOfBounds);
             }
             let offset = self.data_offset() + 8 * index;
             let pointer = self.data.add(offset);
@@ -118,12 +105,10 @@ macro_rules! read_value_at {
 
 macro_rules! read_nullable_value_at {
     ($name:ident,$variant:ident, $type:ty) => {
-        pub(crate) unsafe fn $name(&self, index: usize) -> Result<Value<'static>> {
+        pub(crate) unsafe fn $name(&self, index: usize) -> VmExecResult<Value<'static>> {
             let total_fields = self.get_data_length();
             if index >= total_fields {
-                return Err(Exception::ExecuteCodeError(Box::new(
-                    AllocateError::IndexOutOfBounds,
-                )));
+                return Err(VmError::IndexOutOfBounds);
             }
             let offset = self.data_offset() + 8 * index;
             let pointer = self.data.add(offset);
@@ -139,12 +124,10 @@ macro_rules! read_nullable_value_at {
 
 macro_rules! write_value_at {
     ($name:ident,$variant:ident, $type:ty) => {
-        pub(crate) unsafe fn $name(&self, index: usize, value: &Value<'a>) -> Result<()> {
+        pub(crate) unsafe fn $name(&self, index: usize, value: &Value<'a>) -> VmExecResult<()> {
             let total_fields = self.get_data_length();
             if index >= total_fields {
-                return Err(Exception::ExecuteCodeError(Box::new(
-                    AllocateError::IndexOutOfBounds,
-                )));
+                return Err(VmError::IndexOutOfBounds);
             }
             let offset = self.data_offset() + 8 * index;
             let pointer = self.data.add(offset);
@@ -152,9 +135,7 @@ macro_rules! write_value_at {
                 std::ptr::write(pointer as *mut $type, *v);
                 Ok(())
             } else {
-                Err(Exception::ExecuteCodeError(Box::new(
-                    AllocateError::ValueTypeError,
-                )))
+                Err(VmError::ValueTypeMissMatch)
             }
         }
     };
@@ -162,12 +143,10 @@ macro_rules! write_value_at {
 
 macro_rules! write_nullable_value_at {
     ($name:ident,$variant:ident, $type:ty) => {
-        pub(crate) unsafe fn $name(&self, index: usize, value: &Value<'a>) -> Result<()> {
+        pub(crate) unsafe fn $name(&self, index: usize, value: &Value<'a>) -> VmExecResult<()> {
             let total_fields = self.get_data_length();
             if index >= total_fields {
-                return Err(Exception::ExecuteCodeError(Box::new(
-                    AllocateError::IndexOutOfBounds,
-                )));
+                return Err(VmError::IndexOutOfBounds);
             }
             let offset = self.data_offset() + 8 * index;
             let pointer = self.data.add(offset);
@@ -180,9 +159,7 @@ macro_rules! write_nullable_value_at {
                     std::ptr::write(pointer as *mut u64, 0);
                     Ok(())
                 }
-                _ => Err(Exception::ExecuteCodeError(Box::new(
-                    AllocateError::ValueTypeError,
-                ))),
+                _ => Err(VmError::ValueTypeMissMatch),
             }
         }
     };
@@ -339,11 +316,11 @@ impl<'a> ReferenceValue for ArrayReference<'a> {
     fn get_header(&self) -> AllocateHeader {
         unsafe { read_allocate_header(self.data) }
     }
-    fn set_field_by_name(&self, name: &str, value: &Value<'_>) -> Result<()> {
+    fn set_field_by_name(&self, name: &str, value: &Value<'_>) -> VmExecResult<()> {
         self.set_field_by_offset(name.parse::<usize>().unwrap(), value)
     }
 
-    fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> Result<()> {
+    fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> VmExecResult<()> {
         let element = self.get_array_type();
         unsafe {
             match element {
@@ -362,11 +339,11 @@ impl<'a> ReferenceValue for ArrayReference<'a> {
             }
         }
     }
-    fn get_field_by_name(&self, name: &str) -> Result<Value<'static>> {
+    fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'static>> {
         self.get_field_by_offset(name.parse::<usize>().unwrap())
     }
 
-    fn get_field_by_offset(&self, offset: usize) -> Result<Value<'static>> {
+    fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'static>> {
         let element_type = self.get_array_type();
         unsafe {
             match element_type {
@@ -427,7 +404,11 @@ impl<'a> ObjectReference<'a> {
     write_value_at!(write_array, ArrayRef, ArrayReference);
 
     //TODO 校验Value与RuntimeFieldInfo是否一致
-    unsafe fn write_value_at_offset(&self, field: FieldRef<'a>, value: &Value<'a>) -> Result<()> {
+    unsafe fn write_value_at_offset(
+        &self,
+        field: FieldRef<'a>,
+        value: &Value<'a>,
+    ) -> VmExecResult<()> {
         let offset = field.offset - 1;
         assert!(offset > 0);
         match field.descriptor.as_str() {
@@ -450,7 +431,7 @@ impl<'a> ObjectReference<'a> {
     }
 
     //TODO 校验Value与RuntimeFieldInfo是否一致
-    unsafe fn read_value_at_offset(&self, field: FieldRef) -> Result<Value<'static>> {
+    unsafe fn read_value_at_offset(&self, field: FieldRef) -> VmExecResult<Value<'static>> {
         let offset = field.offset - 1;
         assert!(offset > 0);
         match field.descriptor.as_str() {
@@ -501,7 +482,7 @@ impl<'a> ReferenceValue for ObjectReference<'a> {
         unsafe { read_allocate_header(self.data) }
     }
 
-    fn set_field_by_name(&self, name: &str, value: &Value<'_>) -> Result<()> {
+    fn set_field_by_name(&self, name: &str, value: &Value<'_>) -> VmExecResult<()> {
         //先查找自身类中的field
         let class = self.get_class();
         if let Some(field) = class.fields.get(name) {
@@ -516,16 +497,16 @@ impl<'a> ReferenceValue for ObjectReference<'a> {
                 }
             }
         }
-        Err(Exception::FieldNotFoundException(name.to_string()))
+        Err(VmError::FieldNotFoundException(name.to_string()))
     }
 
-    fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> Result<()> {
+    fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> VmExecResult<()> {
         let class_ref = self.get_class();
         let field = class_ref.get_field(offset)?;
         unsafe { self.write_value_at_offset(field, value) }
     }
 
-    fn get_field_by_name(&self, name: &str) -> Result<Value<'static>> {
+    fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'static>> {
         //先查找自身类中的field
         let class = self.get_class();
         if let Some(field) = class.fields.get(name) {
@@ -536,10 +517,10 @@ impl<'a> ReferenceValue for ObjectReference<'a> {
                 return unsafe { self.read_value_at_offset(field) };
             }
         }
-        Err(Exception::FieldNotFoundException(name.to_string()))
+        Err(VmError::FieldNotFoundException(name.to_string()))
     }
 
-    fn get_field_by_offset(&self, offset: usize) -> Result<Value<'static>> {
+    fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'static>> {
         let class_ref = self.get_class();
         let field = class_ref.get_field(offset)?;
         unsafe { self.read_value_at_offset(field) }

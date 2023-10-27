@@ -1,4 +1,4 @@
-use crate::jvm_exceptions::Result;
+use crate::jvm_error::VmExecResult;
 use crate::runtime_attribute_info::{get_attr_as_constant_value, ConstantValueAttribute};
 use crate::runtime_constant_pool::RuntimeConstantPool;
 use class_file_reader::attribute_info::AttributeType;
@@ -17,7 +17,7 @@ impl RuntimeFieldInfo {
     pub fn is_static(&self) -> bool {
         self.access_flags.contains(FieldAccessFlags::STATIC)
     }
-    pub fn from(field_info: FieldInfo, cp: &RuntimeConstantPool) -> Result<RuntimeFieldInfo> {
+    pub fn from(field_info: FieldInfo, cp: &RuntimeConstantPool) -> VmExecResult<RuntimeFieldInfo> {
         let mut constant_value: Option<ConstantValueAttribute> = None;
         for attr in &field_info.attributes {
             if let AttributeType::ConstantValue = attr.name {

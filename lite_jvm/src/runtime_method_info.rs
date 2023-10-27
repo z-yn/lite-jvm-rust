@@ -1,4 +1,4 @@
-use crate::jvm_exceptions::Result;
+use crate::jvm_error::VmExecResult;
 use crate::runtime_attribute_info::{get_attr_as_code, get_attr_as_exception, CodeAttribute};
 use crate::runtime_constant_pool::RuntimeConstantPool;
 use class_file_reader::attribute_info::AttributeType;
@@ -12,13 +12,23 @@ pub struct RuntimeMethodInfo {
     pub code: Option<CodeAttribute>,
     pub exception: Vec<String>,
 }
+
 ///Code	method_info	45.3
 // Exceptions	method_info	45.3
 // RuntimeVisibleParameterAnnotations, RuntimeInvisibleParameterAnnotations	method_info	49.0
 // AnnotationDefault	method_info	49.0
 // MethodParameters	method_info	52.0
 impl RuntimeMethodInfo {
-    pub fn from(method_info: MethodInfo, cp: &RuntimeConstantPool) -> Result<RuntimeMethodInfo> {
+    pub(crate) fn is_native(&self) -> bool {
+        todo!()
+    }
+    pub(crate) fn is_static(&self) -> bool {
+        todo!()
+    }
+    pub fn from(
+        method_info: MethodInfo,
+        cp: &RuntimeConstantPool,
+    ) -> VmExecResult<RuntimeMethodInfo> {
         let mut code = None;
         let mut exception = Vec::new();
         for attr in &method_info.attributes {

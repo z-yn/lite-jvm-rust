@@ -1,5 +1,5 @@
 /// 设计上需要定义一个类查找其
-use crate::jvm_exceptions::{Exception, Result};
+use crate::jvm_error::{VmError, VmExecResult};
 use std::cell::RefCell;
 use std::fmt::{Debug, Formatter};
 use std::fs;
@@ -20,20 +20,20 @@ impl ClassFinder {
         }
     }
     //查找class,如果查找失败则返回ClassNotFoundException
-    pub fn find_class(&self, name: &str) -> Result<Vec<u8>> {
+    pub fn find_class(&self, name: &str) -> VmExecResult<Vec<u8>> {
         for class_path in &self.class_paths {
             if let Some(v) = class_path.find_class(name)? {
                 return Ok(v);
             }
         }
-        Err(Exception::ClassNotFoundException(String::from(name)))
+        Err(VmError::ClassNotFoundException(String::from(name)))
     }
 }
 
 /// 定义一个能够查找类路径的结构
 pub trait ClassPath {
     //根据名字查找class,可能查的到。也可能找不到。
-    fn find_class(&self, class_name: &str) -> Result<Option<Vec<u8>>>;
+    fn find_class(&self, class_name: &str) -> VmExecResult<Option<Vec<u8>>>;
 }
 
 //通过本地路径进行加载，支持绝对路径和相对路径。
@@ -42,15 +42,15 @@ pub struct FileSystemClassPath {
 }
 
 impl FileSystemClassPath {
-    pub fn new(path: &str) -> Result<FileSystemClassPath> {
+    pub fn new(path: &str) -> VmExecResult<FileSystemClassPath> {
         let class_path_root = if let Ok(abs_path) = fs::canonicalize(PathBuf::from(path)) {
             PathBuf::from(abs_path)
         } else {
-            return Err(Exception::ClassPathNotExist(path.to_string()));
+            return Err(VmError::ClassPathNotExist(path.to_string()));
         };
 
         if !class_path_root.exists() || !class_path_root.is_dir() {
-            Err(Exception::ClassPathNotExist(
+            Err(VmError::ClassPathNotExist(
                 class_path_root.to_string_lossy().to_string(),
             ))
         } else {
@@ -60,14 +60,14 @@ impl FileSystemClassPath {
 }
 
 impl ClassPath for FileSystemClassPath {
-    fn find_class(&self, class_name: &str) -> Result<Option<Vec<u8>>> {
+    fn find_class(&self, class_name: &str) -> VmExecResult<Option<Vec<u8>>> {
         let mut full_path = self.class_path_root.clone();
         full_path.push(class_name);
         full_path.set_extension("class");
         if full_path.exists() {
             fs::read(full_path)
                 .map(Some)
-                .map_err(|e| Exception::ReadClassBytesError(Box::new(e)))
+                .map_err(|e| VmError::ReadClassBytesError(e.to_string()))
         } else {
             Ok(None)
         }
@@ -88,23 +88,23 @@ impl Debug for JarFileClassPath {
 }
 
 impl JarFileClassPath {
-    pub fn new(path: &str) -> Result<JarFileClassPath> {
+    pub fn new(path: &str) -> VmExecResult<JarFileClassPath> {
         let jar_file_path = if let Ok(abs_path) = fs::canonicalize(PathBuf::from(path)) {
             PathBuf::from(abs_path)
         } else {
-            return Err(Exception::JarFileNotExist(path.to_string()));
+            return Err(VmError::JarFileNotExist(path.to_string()));
         };
 
         if !jar_file_path.exists() {
-            Err(Exception::JarFileNotExist(
+            Err(VmError::JarFileNotExist(
                 jar_file_path.to_string_lossy().to_string(),
             ))
         } else {
             let file =
-                File::open(&jar_file_path).map_err(|e| Exception::ReadJarFileError(Box::new(e)))?;
+                File::open(&jar_file_path).map_err(|e| VmError::ReadJarFileError(e.to_string()))?;
             let buf_reader = BufReader::new(file);
-            let zip = ZipArchive::new(buf_reader)
-                .map_err(|e| Exception::ReadJarFileError(Box::new(e)))?;
+            let zip =
+                ZipArchive::new(buf_reader).map_err(|e| VmError::ReadJarFileError(e.to_string()))?;
             Ok(Self {
                 jar_file_path: jar_file_path.to_string_lossy().to_string(),
                 zip: RefCell::new(zip),
@@ -114,18 +114,18 @@ impl JarFileClassPath {
 }
 
 impl ClassPath for JarFileClassPath {
-    fn find_class(&self, class_name: &str) -> Result<Option<Vec<u8>>> {
+    fn find_class(&self, class_name: &str) -> VmExecResult<Option<Vec<u8>>> {
         let class_file_name = class_name.to_string() + ".class";
         match self.zip.borrow_mut().by_name(&class_file_name) {
             Ok(mut zip_file) => {
                 let mut buffer: Vec<u8> = Vec::with_capacity(zip_file.size() as usize);
                 zip_file
                     .read_to_end(&mut buffer)
-                    .map_err(|e| Exception::ReadClassBytesError(Box::new(e)))?;
+                    .map_err(|e| VmError::ReadClassBytesError(e.to_string()))?;
                 Ok(Some(buffer))
             }
             Err(ZipError::FileNotFound) => Ok(None),
-            Err(e) => Err(Exception::ReadClassBytesError(Box::new(e))),
+            Err(e) => Err(VmError::ReadClassBytesError(e.to_string())),
         }
     }
 }

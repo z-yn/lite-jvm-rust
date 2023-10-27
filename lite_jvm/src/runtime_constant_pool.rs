@@ -1,5 +1,4 @@
-use crate::jvm_exceptions::{Exception, Result};
-use class_file_reader::class_file_error::ClassFileError;
+use crate::jvm_error::{VmError, VmExecResult};
 use class_file_reader::constant_pool::{
     ConstantPool, ConstantPoolEntry, ConstantPoolPhysicalEntry,
 };
@@ -20,7 +19,7 @@ pub enum MethodHandlerKind {
 }
 
 impl MethodHandlerKind {
-    pub fn new(kind: u8) -> Result<MethodHandlerKind> {
+    pub fn new(kind: u8) -> VmExecResult<MethodHandlerKind> {
         match kind {
             1 => Ok(MethodHandlerKind::GetField),
             2 => Ok(MethodHandlerKind::GetStatic),
@@ -30,8 +29,8 @@ impl MethodHandlerKind {
             6 => Ok(MethodHandlerKind::InvokeSpecial),
             7 => Ok(MethodHandlerKind::NewInvokeSpecial),
             8 => Ok(MethodHandlerKind::InvokeInterface),
-            _ => Err(Exception::ReadClassBytesError(Box::new(
-                ClassFileError::InvalidMethodHandlerKind(kind),
+            _ => Err(VmError::ReadClassBytesError(format!(
+                "invalid method handler kind {kind}"
             ))),
         }
     }
@@ -83,43 +82,46 @@ pub enum RuntimeConstantPoolEntry {
 }
 
 impl RuntimeConstantPoolEntry {
-    fn get_utf8_string(cp: &ConstantPool, offset: &u16) -> Result<String> {
+    fn get_utf8_string(cp: &ConstantPool, offset: &u16) -> VmExecResult<String> {
         cp.get_string(offset)
-            .map_err(|e| Exception::ReadClassBytesError(Box::new(e)))
+            .map_err(|e| VmError::ReadClassBytesError(e.to_string()))
     }
 
-    fn get_class_name_string(cp: &ConstantPool, offset: &u16) -> Result<String> {
+    fn get_class_name_string(cp: &ConstantPool, offset: &u16) -> VmExecResult<String> {
         let class_ref = cp
             .get(offset)
-            .map_err(|e| Exception::ReadClassBytesError(Box::new(e)))?;
+            .map_err(|e| VmError::ReadClassBytesError(e.to_string()))?;
         if let ConstantPoolEntry::ClassReference(name_index) = class_ref {
             Ok(Self::get_utf8_string(cp, name_index)?)
         } else {
-            Err(Exception::ReadClassBytesError(Box::new(
-                ClassFileError::InvalidClassData("Not ClassRef ConstantValue".to_string()),
-            )))
+            Err(VmError::ReadClassBytesError(
+                "Not ClassRef ConstantValue".to_string(),
+            ))
         }
     }
-    fn get_name_and_type_string(cp: &ConstantPool, offset: &u16) -> Result<(String, String)> {
+    fn get_name_and_type_string(cp: &ConstantPool, offset: &u16) -> VmExecResult<(String, String)> {
         let result = cp
             .get(offset)
-            .map_err(|e| Exception::ReadClassBytesError(Box::new(e)))?;
+            .map_err(|e| VmError::ReadClassBytesError(e.to_string()))?;
         if let ConstantPoolEntry::NameAndTypeDescriptor(name_idx, type_inx) = result {
             Ok((
                 Self::get_utf8_string(cp, name_idx)?,
                 Self::get_utf8_string(cp, type_inx)?,
             ))
         } else {
-            Err(Exception::ReadClassBytesError(Box::new(
-                ClassFileError::InvalidClassData("Not NameAndType ConstantValue".to_string()),
-            )))
+            Err(VmError::ReadClassBytesError(
+                "Not NameAndType ConstantValue".to_string(),
+            ))
         }
     }
 
-    fn get_field_info_string(cp: &ConstantPool, offset: &u16) -> Result<(String, String, String)> {
+    fn get_field_info_string(
+        cp: &ConstantPool,
+        offset: &u16,
+    ) -> VmExecResult<(String, String, String)> {
         let result = cp
             .get(offset)
-            .map_err(|e| Exception::ReadClassBytesError(Box::new(e)))?;
+            .map_err(|e| VmError::ReadClassBytesError(e.to_string()))?;
         match result {
             ConstantPoolEntry::MethodReference(class_index, name_and_type_index)
             | ConstantPoolEntry::FieldReference(class_index, name_and_type_index)
@@ -128,13 +130,16 @@ impl RuntimeConstantPoolEntry {
                 let (name, descriptor) = Self::get_name_and_type_string(cp, name_and_type_index)?;
                 Ok((class_name, name, descriptor))
             }
-            _ => Err(Exception::ReadClassBytesError(Box::new(
-                ClassFileError::InvalidClassData("Not NameAndType ConstantValue".to_string()),
-            ))),
+            _ => Err(VmError::ReadClassBytesError(
+                "Not NameAndType ConstantValue".to_string(),
+            )),
         }
     }
 
-    fn from(cp: &ConstantPool, entry: &ConstantPoolEntry) -> Result<RuntimeConstantPoolEntry> {
+    fn from(
+        cp: &ConstantPool,
+        entry: &ConstantPoolEntry,
+    ) -> VmExecResult<RuntimeConstantPoolEntry> {
         let value = match entry {
             ConstantPoolEntry::Utf8(v) => RuntimeConstantPoolEntry::Utf8(String::from(v)),
             ConstantPoolEntry::Integer(v) => RuntimeConstantPoolEntry::Integer(*v),
@@ -233,46 +238,54 @@ impl RuntimeConstantPool {
             entries: Vec::new(),
         }
     }
-    pub fn get_string(&self, index: u16) -> Result<String> {
+    pub fn get_string(&self, index: u16) -> VmExecResult<String> {
         if let RuntimeConstantPoolEntry::StringReference(class_name) = self.get(index)? {
             Ok(class_name.clone())
         } else {
-            Err(Exception::ReadClassBytesError(Box::new(
-                ClassFileError::InvalidClassData("Should Be StringRef".to_string()),
-            )))
+            Err(VmError::ReadClassBytesError(
+                "Should Be StringRef".to_string(),
+            ))
         }
     }
-    pub fn get_utf8_string(&self, index: u16) -> Result<String> {
+    pub fn get_utf8_string(&self, index: u16) -> VmExecResult<String> {
         if let RuntimeConstantPoolEntry::Utf8(class_name) = self.get(index)? {
             Ok(class_name.clone())
         } else {
-            Err(Exception::ReadClassBytesError(Box::new(
-                ClassFileError::InvalidClassData("Should Be Utf8".to_string()),
-            )))
+            Err(VmError::ReadClassBytesError("Should Be Utf8".to_string()))
         }
     }
 
-    pub fn get_class_name(&self, index: u16) -> Result<&str> {
+    pub fn get_field_name(&self, index: u16) -> VmExecResult<(&str, &str, &str)> {
+        if let RuntimeConstantPoolEntry::FieldReference(class_name, field_name, field_descriptor) =
+            self.get(index)?
+        {
+            Ok((class_name, field_name, field_descriptor))
+        } else {
+            Err(VmError::ReadClassBytesError("Should Be Field".to_string()))
+        }
+    }
+
+    pub fn get_class_name(&self, index: u16) -> VmExecResult<&str> {
         if let RuntimeConstantPoolEntry::ClassReference(class_name) = self.get(index)? {
             Ok(class_name)
         } else {
-            Err(Exception::ReadClassBytesError(Box::new(
-                ClassFileError::InvalidClassData("Should Be ClassRef".to_string()),
-            )))
+            Err(VmError::ReadClassBytesError(
+                "Should Be ClassRef".to_string(),
+            ))
         }
     }
-    pub(crate) fn get(&self, index: u16) -> Result<&RuntimeConstantPoolEntry> {
+    pub(crate) fn get(&self, index: u16) -> VmExecResult<&RuntimeConstantPoolEntry> {
         let offset = (index - 1) as usize;
         if self.entries.len() >= offset {
             if let RuntimeConstantPoolPhysicalEntry::Entry(entry) = &self.entries[offset] {
                 return Ok(entry);
             }
         }
-        Err(Exception::ReadClassBytesError(Box::new(
-            ClassFileError::InvalidConstantPoolIndexError(index),
-        )))
+        Err(VmError::ReadClassBytesError(
+            "invalid const pool index ".to_string(),
+        ))
     }
-    pub fn from(cp: &ConstantPool) -> Result<RuntimeConstantPool> {
+    pub fn from(cp: &ConstantPool) -> VmExecResult<RuntimeConstantPool> {
         let mut runtime_cp = Self::new();
         for entry in &cp.entries {
             let runtime_entry = match entry {

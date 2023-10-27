@@ -1,9 +1,10 @@
-use crate::jvm_exceptions::{Exception, Result};
+use crate::jvm_error::{VmError, VmExecResult};
 use crate::runtime_constant_pool::RuntimeConstantPool;
 use crate::runtime_field_info::RuntimeFieldInfo;
 use crate::runtime_method_info::{MethodKey, RuntimeMethodInfo};
 use class_file_reader::class_file::ClassAccessFlags;
 use indexmap::IndexMap;
+use std::hash::{Hash, Hasher};
 
 pub enum ClassStatus {
     Loaded,
@@ -35,7 +36,7 @@ pub struct Class<'a> {
 }
 
 impl<'a> Class<'a> {
-    pub(crate) fn get_field(&self, offset: usize) -> Result<FieldRef<'a>> {
+    pub(crate) fn get_field(&self, offset: usize) -> VmExecResult<FieldRef<'a>> {
         assert!(offset < self.total_num_of_fields);
         let super_class_offset = if let Some(class_ref) = self.super_class {
             if offset < class_ref.total_num_of_fields {
@@ -73,7 +74,7 @@ impl<'a> Class<'a> {
         &self,
         method_name: &str,
         descriptor: &str,
-    ) -> Result<MethodRef<'a>> {
+    ) -> VmExecResult<MethodRef<'a>> {
         if let Some(method) = self.methods.get(&MethodKey::new(method_name, descriptor)) {
             //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
             let method_ref = unsafe {
@@ -99,11 +100,27 @@ impl<'a> Class<'a> {
                 }
             }
         }
-        Err(Exception::MethodNotFoundException(method_name.to_string()))
+        Err(VmError::MethodNotFoundException(method_name.to_string()))
     }
 }
 
 pub type ClassRef<'a> = &'a Class<'a>;
+
+impl<'a> Hash for Class<'a> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state)
+    }
+}
+
+impl<'a> PartialEq<Self> for Class<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        let v1 = self as *const Class;
+        let v2 = other as *const Class;
+        v1 == v2
+    }
+}
+
+impl<'a> Eq for Class<'a> {}
 
 pub type MethodRef<'a> = &'a RuntimeMethodInfo;
 

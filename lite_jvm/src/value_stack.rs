@@ -1,18 +1,9 @@
-use crate::jvm_exceptions::{Exception, Result};
+use crate::jvm_error::{VmError, VmExecResult};
 use crate::reference_value::Value;
-use thiserror::Error;
 
 #[derive(Debug)]
 pub struct ValueStack<'a> {
     stack: Vec<Value<'a>>,
-}
-/// Errors returned from various stack operations
-#[derive(Error, Debug, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum ValueStackFault {
-    #[error("stack overflow ")]
-    StackOverFlow,
-    #[error("cannot pop from an empty stack")]
-    EmptyStack,
 }
 impl<'a> ValueStack<'a> {
     pub(crate) fn new(max_size: usize) -> ValueStack<'a> {
@@ -21,20 +12,74 @@ impl<'a> ValueStack<'a> {
         }
     }
 
-    pub(crate) fn pop(&mut self) -> Result<Value<'a>> {
-        self.stack.pop().ok_or(Exception::ExecuteCodeError(Box::new(
-            ValueStackFault::EmptyStack,
-        )))
+    pub(crate) fn pop(&mut self) -> VmExecResult<Value<'a>> {
+        self.stack.pop().ok_or(VmError::PopFromEmptyStack)
     }
 
-    pub(crate) fn push(&mut self, value: Value<'a>) -> Result<()> {
+    pub(crate) fn push(&mut self, value: Value<'a>) -> VmExecResult<()> {
         if self.stack.len() < self.stack.capacity() {
             self.stack.push(value);
             Ok(())
         } else {
-            Err(Exception::ExecuteCodeError(Box::new(
-                ValueStackFault::StackOverFlow,
-            )))
+            Err(VmError::StackOverFlow)
         }
+    }
+
+    pub fn dup(&mut self) -> VmExecResult<()> {
+        match self.stack.last() {
+            None => Err(VmError::PopFromEmptyStack),
+            Some(head) => self.push(head.clone()),
+        }
+    }
+
+    pub fn dup_x1(&mut self) -> VmExecResult<()> {
+        let value1 = self.pop()?;
+        let value2 = self.pop()?;
+        self.push(value1.clone())?;
+        self.push(value2)?;
+        self.push(value1)
+    }
+
+    pub fn dup_x2(&mut self) -> VmExecResult<()> {
+        let value1 = self.pop()?;
+        let value2 = self.pop()?;
+        let value3 = self.pop()?;
+        self.push(value1.clone())?;
+        self.push(value3)?;
+        self.push(value2)?;
+        self.push(value1)
+    }
+
+    pub fn dup2(&mut self) -> VmExecResult<()> {
+        let value1 = self.pop()?;
+        let value2 = self.pop()?;
+        self.push(value2.clone())?;
+        self.push(value1.clone())?;
+        self.push(value2)?;
+        self.push(value1)
+    }
+
+    pub fn dup2_x1(&mut self) -> VmExecResult<()> {
+        let value1 = self.pop()?;
+        let value2 = self.pop()?;
+        let value3 = self.pop()?;
+        self.push(value2.clone())?;
+        self.push(value1.clone())?;
+        self.push(value3)?;
+        self.push(value2)?;
+        self.push(value1)
+    }
+
+    pub fn dup2_x2(&mut self) -> VmExecResult<()> {
+        let value1 = self.pop()?;
+        let value2 = self.pop()?;
+        let value3 = self.pop()?;
+        let value4 = self.pop()?;
+        self.push(value2.clone())?;
+        self.push(value1.clone())?;
+        self.push(value4)?;
+        self.push(value3)?;
+        self.push(value2)?;
+        self.push(value1)
     }
 }

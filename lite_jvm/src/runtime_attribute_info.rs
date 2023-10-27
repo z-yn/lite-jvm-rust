@@ -1,4 +1,4 @@
-use crate::jvm_exceptions::{Exception, Result};
+use crate::jvm_error::{VmError, VmExecResult};
 use crate::runtime_constant_pool::{RuntimeConstantPool, RuntimeConstantPoolEntry};
 use class_file_reader::cesu8_byte_buffer::ByteBuffer;
 use class_file_reader::class_file_error;
@@ -17,7 +17,7 @@ pub enum ConstantValueAttribute {
 pub(crate) fn get_attr_as_constant_value(
     value: &Vec<u8>,
     cp: &RuntimeConstantPool,
-) -> Result<ConstantValueAttribute> {
+) -> VmExecResult<ConstantValueAttribute> {
     assert_eq!(2, value.len());
     let bytes = &value[..];
     let const_pool_index = u16::from_be_bytes(bytes.try_into().unwrap());
@@ -29,7 +29,7 @@ pub(crate) fn get_attr_as_constant_value(
         RuntimeConstantPoolEntry::StringReference(v) => {
             Ok(ConstantValueAttribute::String(v.clone()))
         }
-        _ => Err(Exception::InvalidAttribute("".to_string())).unwrap(),
+        _ => Err(VmError::InvalidAttribute("".to_string())).unwrap(),
     }
 }
 
@@ -203,8 +203,11 @@ fn read_code_bytes(
         local_variable_type_table,
     })
 }
-pub(crate) fn get_attr_as_code(value: &Vec<u8>, cp: &RuntimeConstantPool) -> Result<CodeAttribute> {
-    read_code_bytes(value, cp).map_err(|e| Exception::ReadClassBytesError(Box::new(e)))
+pub(crate) fn get_attr_as_code(
+    value: &Vec<u8>,
+    cp: &RuntimeConstantPool,
+) -> VmExecResult<CodeAttribute> {
+    read_code_bytes(value, cp).map_err(|e| VmError::ReadClassBytesError(e.to_string()))
 }
 
 pub(crate) fn get_attr_as_exception(bytes: &Vec<u8>, cp: &RuntimeConstantPool) -> Vec<String> {

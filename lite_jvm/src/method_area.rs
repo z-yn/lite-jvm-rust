@@ -1,6 +1,6 @@
 use crate::bootstrap_class_loader::{BootstrapClassLoader, ClassLoader, LoadClassResult};
 use crate::class_finder::ClassPath;
-use crate::jvm_exceptions::Result;
+use crate::jvm_error::VmExecResult;
 use crate::loaded_class::{Class, ClassRef, ClassStatus};
 use crate::runtime_constant_pool::RuntimeConstantPool;
 use crate::runtime_field_info::RuntimeFieldInfo;
@@ -41,7 +41,7 @@ impl<'a> MethodArea<'a> {
             classes: Arena::new(),
         }
     }
-    pub fn load_class(&self, class_name: &str) -> Result<ClassRef<'a>> {
+    pub fn load_class(&self, class_name: &str) -> VmExecResult<ClassRef<'a>> {
         let load_class_result = self
             .bootstrap_class_loader
             .borrow()
@@ -58,7 +58,7 @@ impl<'a> MethodArea<'a> {
         }
     }
 
-    fn do_class_loading(&self, class_file: ClassFile) -> Result<ClassRef<'a>> {
+    fn do_class_loading(&self, class_file: ClassFile) -> VmExecResult<ClassRef<'a>> {
         let mut super_num_of_fields: usize = 0;
         //解析super_class
         let super_class = if let Some(super_class_name) = &class_file.super_class_name {

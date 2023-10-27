@@ -1,9 +1,11 @@
 use crate::call_stack::CallStack;
-use crate::jvm_exceptions::Result;
+use crate::java_exception::InvokeMethodResult;
+use crate::jvm_error::VmExecResult;
 use crate::loaded_class::{ClassRef, MethodRef};
 use crate::method_area::MethodArea;
 use crate::object_heap::ObjectHeap;
-use crate::reference_value::{ArrayElement, ArrayReference, ObjectReference};
+use crate::reference_value::{ArrayElement, ArrayReference, ObjectReference, Value};
+use crate::static_field_area::StaticArea;
 use typed_arena::Arena;
 
 /// 虚拟机实现。 虚拟机应该是总入口
@@ -42,6 +44,7 @@ pub struct VirtualMachine<'a> {
     method_area: MethodArea<'a>,
     object_heap: ObjectHeap<'a>,
     call_stacks: Arena<CallStack<'a>>,
+    static_area: StaticArea<'a>,
 }
 
 impl<'a> VirtualMachine<'a> {
@@ -50,21 +53,22 @@ impl<'a> VirtualMachine<'a> {
             method_area: MethodArea::new(),
             object_heap: ObjectHeap::new(heap_size),
             call_stacks: Arena::new(),
+            static_area: StaticArea::new(),
         }
     }
 
-    fn link_class(&self, _class: ClassRef<'a>) -> Result<()> {
+    fn link_class(&self, _class: ClassRef<'a>) -> VmExecResult<()> {
         Ok(())
     }
     //类的初始化。需要执行<clinit>方法。初始化一些变量。需要先实现方法执行
-    fn initialize_class(&mut self, class: ClassRef<'a>) -> Result<()> {
+    fn initialize_class(&mut self, class: ClassRef<'a>) -> VmExecResult<()> {
         if let Ok(method) = class.get_method_info("<clinit>", "()V") {
-            // let class = self.method_area.get_mut(class).unwrap();
+
             //TODO 执行类初始化方法。将计算的字段信息存储到类中。需要先实现方法执行
         }
         Ok(())
     }
-    pub fn lookup_class(&mut self, class_name: &str) -> Result<ClassRef<'a>> {
+    pub fn lookup_class(&mut self, class_name: &str) -> VmExecResult<ClassRef<'a>> {
         let class = self.method_area.load_class(class_name)?;
         self.link_class(class)?;
         self.initialize_class(class)?;
@@ -76,7 +80,7 @@ impl<'a> VirtualMachine<'a> {
         class_name: &str,
         method_name: &str,
         descriptor: &str,
-    ) -> Result<(ClassRef, MethodRef)> {
+    ) -> VmExecResult<(ClassRef, MethodRef)> {
         let class_ref = self.lookup_class(class_name)?;
         let method_ref = class_ref.get_method_info(method_name, descriptor)?;
         Ok((class_ref, method_ref))
@@ -94,5 +98,54 @@ impl<'a> VirtualMachine<'a> {
         self.object_heap
             .allocate_array(array_element, length)
             .unwrap()
+    }
+
+    pub fn get_static_field(
+        &mut self,
+        class_name: &str,
+        field_name: &str,
+    ) -> VmExecResult<Value<'a>> {
+        let class_ref = self.lookup_class(class_name)?;
+        let value = self.static_area.get_static_field(class_ref, field_name);
+        Ok(value)
+    }
+
+    pub fn set_static_field(
+        &mut self,
+        class_name: &str,
+        field_name: &str,
+        value: Value<'a>,
+    ) -> VmExecResult<()> {
+        let class_ref = self.lookup_class(class_name)?;
+        self.static_area
+            .set_static_field(class_ref, field_name, value);
+        Ok(())
+    }
+
+    pub fn invoke_native_method(
+        &mut self,
+        class_ref: ClassRef<'a>,
+        method_ref: MethodRef<'a>,
+        object: Option<ObjectReference<'a>>,
+        args: Vec<Value<'a>>,
+    ) -> InvokeMethodResult<'a> {
+        todo!()
+    }
+    pub fn invoke_method(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        class_ref: ClassRef<'a>,
+        method_ref: MethodRef<'a>,
+        object: Option<ObjectReference<'a>>,
+        args: Vec<Value<'a>>,
+    ) -> InvokeMethodResult<'a> {
+        if method_ref.is_native() {
+            return self.invoke_native_method(class_ref, method_ref, object, args);
+        }
+
+        let mut frame = call_stack.new_frame(class_ref, method_ref, object, args);
+        let result = frame.as_mut().execute(self, call_stack);
+        call_stack.pop_frame();
+        result
     }
 }

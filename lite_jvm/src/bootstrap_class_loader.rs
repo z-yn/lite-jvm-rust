@@ -1,6 +1,6 @@
 use crate::bootstrap_class_loader::LoadClassResult::{AlreadyLoaded, NewLoaded};
 use crate::class_finder::{ClassFinder, ClassPath};
-use crate::jvm_exceptions::{Exception, Result};
+use crate::jvm_error::{VmError, VmExecResult};
 use crate::loaded_class::ClassRef;
 use class_file_reader::class_file::ClassFile;
 use class_file_reader::class_file_reader::read_buffer;
@@ -29,7 +29,7 @@ pub enum LoadClassResult<'a> {
     AlreadyLoaded(ClassRef<'a>),
 }
 pub trait ClassLoader<'a> {
-    fn load_class(&self, name: &str) -> Result<LoadClassResult<'a>>;
+    fn load_class(&self, name: &str) -> VmExecResult<LoadClassResult<'a>>;
 
     fn registry_class(&mut self, class: ClassRef<'a>);
 }
@@ -57,12 +57,12 @@ impl<'a> BootstrapClassLoader<'a> {
 }
 
 impl<'a> ClassLoader<'a> for BootstrapClassLoader<'a> {
-    fn load_class(&self, name: &str) -> Result<LoadClassResult<'a>> {
+    fn load_class(&self, name: &str) -> VmExecResult<LoadClassResult<'a>> {
         match self.loaded_class.get(name) {
             Some(v) => Ok(AlreadyLoaded(v)),
             None => {
                 let new_class_file = self.class_finder.find_class(name).map(|bytes| {
-                    read_buffer(&bytes).map_err(|e| Exception::ReadClassBytesError(Box::new(e)))
+                    read_buffer(&bytes).map_err(|e| VmError::ReadClassBytesError(e.to_string()))
                 })?;
                 Ok(NewLoaded(new_class_file?))
             }
