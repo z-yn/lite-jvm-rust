@@ -1,5 +1,5 @@
 use crate::call_stack::CallStack;
-use crate::java_exception::InvokeMethodResult;
+use crate::java_exception::{InvokeMethodResult, MethodCallError};
 use crate::jvm_error::VmExecResult;
 use crate::loaded_class::{ClassRef, MethodRef};
 use crate::method_area::MethodArea;
@@ -61,27 +61,35 @@ impl<'a> VirtualMachine<'a> {
         Ok(())
     }
     //类的初始化。需要执行<clinit>方法。初始化一些变量。需要先实现方法执行
-    fn initialize_class(&mut self, class: ClassRef<'a>) -> VmExecResult<()> {
-        if let Ok(method) = class.get_method_info("<clinit>", "()V") {
-
-            //TODO 执行类初始化方法。将计算的字段信息存储到类中。需要先实现方法执行
+    fn initialize_class(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        class_ref: ClassRef<'a>,
+    ) -> Result<(), MethodCallError<'a>> {
+        if let Ok(method_ref) = class_ref.get_method_info("<clinit>", "()V") {
+            self.invoke_method(call_stack, class_ref, method_ref, None, Vec::new())?;
         }
         Ok(())
     }
-    pub fn lookup_class(&mut self, class_name: &str) -> VmExecResult<ClassRef<'a>> {
+    pub fn lookup_class(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        class_name: &str,
+    ) -> Result<ClassRef<'a>, MethodCallError<'a>> {
         let class = self.method_area.load_class(class_name)?;
         self.link_class(class)?;
-        self.initialize_class(class)?;
+        self.initialize_class(call_stack, class)?;
         Ok(class)
     }
 
     pub fn look_method(
         &mut self,
+        call_stack: &mut CallStack<'a>,
         class_name: &str,
         method_name: &str,
         descriptor: &str,
-    ) -> VmExecResult<(ClassRef, MethodRef)> {
-        let class_ref = self.lookup_class(class_name)?;
+    ) -> Result<(ClassRef, MethodRef), MethodCallError<'a>> {
+        let class_ref = self.lookup_class(call_stack, class_name)?;
         let method_ref = class_ref.get_method_info(method_name, descriptor)?;
         Ok((class_ref, method_ref))
     }
@@ -102,21 +110,23 @@ impl<'a> VirtualMachine<'a> {
 
     pub fn get_static_field(
         &mut self,
+        call_stack: &mut CallStack<'a>,
         class_name: &str,
         field_name: &str,
-    ) -> VmExecResult<Value<'a>> {
-        let class_ref = self.lookup_class(class_name)?;
+    ) -> Result<Value<'a>, MethodCallError<'a>> {
+        let class_ref = self.lookup_class(call_stack, class_name)?;
         let value = self.static_area.get_static_field(class_ref, field_name);
         Ok(value)
     }
 
     pub fn set_static_field(
         &mut self,
+        call_stack: &mut CallStack<'a>,
         class_name: &str,
         field_name: &str,
         value: Value<'a>,
-    ) -> VmExecResult<()> {
-        let class_ref = self.lookup_class(class_name)?;
+    ) -> Result<(), MethodCallError<'a>> {
+        let class_ref = self.lookup_class(call_stack, class_name)?;
         self.static_area
             .set_static_field(class_ref, field_name, value);
         Ok(())

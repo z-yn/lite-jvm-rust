@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, Clone, PartialEq)]
 pub enum VmError {
     #[error("ClassNotFoundException {0}")]
     ClassNotFoundException(String),

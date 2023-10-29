@@ -1,5 +1,6 @@
 use crate::class_file_error::{ClassFileError, Result};
 use cesu8::from_java_cesu8;
+use std::i16;
 pub struct ByteBuffer<'a> {
     buffer: &'a [u8],
     pub position: usize,
@@ -28,6 +29,15 @@ impl<'a> ByteBuffer<'a> {
             .map(|bytes| u8::from_be_bytes(bytes.try_into().unwrap()))
     }
 
+    pub fn read_i8(&mut self) -> Result<i8> {
+        self.advance(std::mem::size_of::<i8>())
+            .map(|bytes| i8::from_be_bytes(bytes.try_into().unwrap()))
+    }
+
+    pub fn read_i16(&mut self) -> Result<i16> {
+        self.advance(std::mem::size_of::<i16>())
+            .map(|bytes| i16::from_be_bytes(bytes.try_into().unwrap()))
+    }
     pub fn read_2_u16(&mut self) -> Result<(u16, u16)> {
         let first = self.read_u16()?;
         let second = self.read_u16()?;
