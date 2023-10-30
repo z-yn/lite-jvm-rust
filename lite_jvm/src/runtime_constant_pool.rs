@@ -1,4 +1,5 @@
 use crate::jvm_error::{VmError, VmExecResult};
+use crate::reference_value::Value;
 use class_file_reader::constant_pool::{
     ConstantPool, ConstantPoolEntry, ConstantPoolPhysicalEntry,
 };
@@ -220,6 +221,49 @@ impl RuntimeConstantPoolEntry {
     }
 }
 
+impl Display for RuntimeConstantPoolEntry {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RuntimeConstantPoolEntry::Utf8(v) => write!(f, "Utf8\t{v}"),
+            RuntimeConstantPoolEntry::Integer(v) => write!(f, "Integer\t{v}"),
+            RuntimeConstantPoolEntry::Float(v) => write!(f, "Float\t{v}"),
+            RuntimeConstantPoolEntry::Long(v) => write!(f, "Long\t{v}"),
+            RuntimeConstantPoolEntry::Double(v) => write!(f, "Double\t{v}"),
+            RuntimeConstantPoolEntry::ClassReference(v) => write!(f, "Class\t{v}"),
+            RuntimeConstantPoolEntry::StringReference(v) => write!(f, "String\t{v}"),
+            RuntimeConstantPoolEntry::FieldReference(class_name, name, descriptor) => {
+                write!(f, "Fieldref\t{class_name}.{name}:{descriptor}")
+            }
+            RuntimeConstantPoolEntry::MethodReference(class_name, name, descriptor) => {
+                write!(f, "Methodref\t{class_name}.{name}:{descriptor}")
+            }
+            RuntimeConstantPoolEntry::InterfaceMethodReference(class_name, name, descriptor) => {
+                write!(f, "InterfaceMethodref\t{class_name}.{name}:{descriptor}")
+            }
+            RuntimeConstantPoolEntry::NameAndTypeDescriptor(name, descriptor) => {
+                write!(f, "InterfaceMethodref\t{name}:{descriptor}")
+            }
+            RuntimeConstantPoolEntry::MethodHandler(handle_type, class_name, name, descriptor) => {
+                write!(
+                    f,
+                    "InvokeDynamic\t#{handle_type},{class_name}.{name}:{descriptor}"
+                )
+            }
+            RuntimeConstantPoolEntry::MethodType(descriptor) => {
+                write!(f, "MethodType\t{descriptor}")
+            }
+            RuntimeConstantPoolEntry::Dynamic(idx, name, descriptor) => {
+                write!(f, "InvokeDynamic\t#{idx},{name}:{descriptor}")
+            }
+            RuntimeConstantPoolEntry::InvokeDynamic(idx, name, descriptor) => {
+                write!(f, "InvokeDynamic\t#{idx},{name}:{descriptor}")
+            }
+            RuntimeConstantPoolEntry::Module(name) => write!(f, "Module\t{name}"),
+            RuntimeConstantPoolEntry::Package(name) => write!(f, "Package\t{name}"),
+        }
+    }
+}
+
 pub enum RuntimeConstantPoolPhysicalEntry {
     Entry(RuntimeConstantPoolEntry),
     PlaceHolder,
@@ -230,6 +274,22 @@ pub enum RuntimeConstantPoolPhysicalEntry {
 /// 讲类常量池转换成运行时常量池。解析掉所有的引用，方便查找和使用。
 pub struct RuntimeConstantPool {
     entries: Vec<RuntimeConstantPoolPhysicalEntry>,
+}
+
+impl Display for RuntimeConstantPool {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for (index, entry) in self.entries.iter().enumerate() {
+            match entry {
+                RuntimeConstantPoolPhysicalEntry::Entry(e) => {
+                    writeln!(f, "#{index} = {e}")?;
+                }
+                RuntimeConstantPoolPhysicalEntry::PlaceHolder => {
+                    writeln!(f, "#{index} = place_holder")?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl RuntimeConstantPool {

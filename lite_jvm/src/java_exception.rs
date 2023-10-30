@@ -1,6 +1,7 @@
 use crate::jvm_error::VmError;
 use crate::reference_value::{ObjectReference, Value};
 
+#[derive(Debug)]
 pub enum MethodCallError<'a> {
     InternalError(VmError),
     ExceptionThrown(ObjectReference<'a>),

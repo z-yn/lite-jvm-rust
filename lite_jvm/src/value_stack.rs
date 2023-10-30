@@ -82,4 +82,11 @@ impl<'a> ValueStack<'a> {
         self.push(value2)?;
         self.push(value1)
     }
+
+    pub fn swap(&mut self) -> VmExecResult<()> {
+        let value1 = self.pop()?;
+        let value2 = self.pop()?;
+        self.push(value1)?;
+        self.push(value2)
+    }
 }

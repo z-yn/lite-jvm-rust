@@ -1,7 +1,8 @@
 use crate::call_stack::CallStack;
+use crate::class_finder::ClassPath;
 use crate::java_exception::{InvokeMethodResult, MethodCallError};
 use crate::jvm_error::VmExecResult;
-use crate::loaded_class::{ClassRef, MethodRef};
+use crate::loaded_class::{ClassRef, ClassStatus, MethodRef};
 use crate::method_area::MethodArea;
 use crate::object_heap::ObjectHeap;
 use crate::reference_value::{ArrayElement, ArrayReference, ObjectReference, Value};
@@ -57,7 +58,16 @@ impl<'a> VirtualMachine<'a> {
         }
     }
 
-    fn link_class(&self, _class: ClassRef<'a>) -> VmExecResult<()> {
+    pub fn add_class_path(&mut self, class_path: Box<dyn ClassPath>) {
+        self.method_area.add_class_path(class_path);
+    }
+
+    fn link_class(&mut self, class_ref: ClassRef<'a>) -> VmExecResult<()> {
+        if let ClassStatus::Loaded = class_ref.status {
+            if let Some(mut_class_ref) = self.method_area.get_mut(class_ref) {
+                mut_class_ref.status = ClassStatus::Linked;
+            }
+        }
         Ok(())
     }
     //类的初始化。需要执行<clinit>方法。初始化一些变量。需要先实现方法执行
@@ -66,8 +76,13 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut CallStack<'a>,
         class_ref: ClassRef<'a>,
     ) -> Result<(), MethodCallError<'a>> {
-        if let Ok(method_ref) = class_ref.get_method_info("<clinit>", "()V") {
-            self.invoke_method(call_stack, class_ref, method_ref, None, Vec::new())?;
+        if let ClassStatus::Linked = class_ref.status {
+            if let Ok(method_ref) = class_ref.get_method("<clinit>", "()V") {
+                self.invoke_method(call_stack, class_ref, method_ref, None, Vec::new())?;
+            }
+            if let Some(mut_class_ref) = self.method_area.get_mut(class_ref) {
+                mut_class_ref.status = ClassStatus::Initialized;
+            }
         }
         Ok(())
     }
@@ -77,6 +92,7 @@ impl<'a> VirtualMachine<'a> {
         class_name: &str,
     ) -> Result<ClassRef<'a>, MethodCallError<'a>> {
         let class = self.method_area.load_class(class_name)?;
+        assert_eq!(class.name, "FieldTest");
         self.link_class(class)?;
         self.initialize_class(call_stack, class)?;
         Ok(class)
@@ -90,7 +106,7 @@ impl<'a> VirtualMachine<'a> {
         descriptor: &str,
     ) -> Result<(ClassRef, MethodRef), MethodCallError<'a>> {
         let class_ref = self.lookup_class(call_stack, class_name)?;
-        let method_ref = class_ref.get_method_info(method_name, descriptor)?;
+        let method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
         Ok((class_ref, method_ref))
     }
 
@@ -110,23 +126,21 @@ impl<'a> VirtualMachine<'a> {
 
     pub fn get_static_field(
         &mut self,
-        call_stack: &mut CallStack<'a>,
         class_name: &str,
         field_name: &str,
     ) -> Result<Value<'a>, MethodCallError<'a>> {
-        let class_ref = self.lookup_class(call_stack, class_name)?;
+        let class_ref = self.method_area.load_class(class_name)?;
         let value = self.static_area.get_static_field(class_ref, field_name);
         Ok(value)
     }
 
     pub fn set_static_field(
         &mut self,
-        call_stack: &mut CallStack<'a>,
         class_name: &str,
         field_name: &str,
         value: Value<'a>,
     ) -> Result<(), MethodCallError<'a>> {
-        let class_ref = self.lookup_class(call_stack, class_name)?;
+        let class_ref = self.method_area.load_class(class_name)?;
         self.static_area
             .set_static_field(class_ref, field_name, value);
         Ok(())
@@ -153,9 +167,35 @@ impl<'a> VirtualMachine<'a> {
             return self.invoke_native_method(class_ref, method_ref, object, args);
         }
 
-        let mut frame = call_stack.new_frame(class_ref, method_ref, object, args);
-        let result = frame.as_mut().execute(self, call_stack);
+        let mut frame = call_stack.new_frame(class_ref, method_ref, object, args)?;
+        let result = frame.as_mut().execute(self, call_stack)?;
         call_stack.pop_frame();
-        result
+        Ok(result)
+    }
+
+    pub fn allocate_call_stack(&mut self) -> &'a mut CallStack<'a> {
+        let stack = self.call_stacks.alloc(CallStack::new());
+        unsafe {
+            let stack_ptr: *mut CallStack<'a> = stack;
+            &mut *stack_ptr
+        }
+    }
+}
+
+mod tests {
+
+    #[test]
+    fn test_exec() {
+        use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
+        use crate::loaded_class::ClassStatus;
+        use crate::virtual_machine::VirtualMachine;
+        let mut vm = VirtualMachine::new(102400);
+        let file_system_path = FileSystemClassPath::new("./resources").unwrap();
+        vm.add_class_path(Box::new(file_system_path));
+        let rt_jar_path = JarFileClassPath::new("./resources/rt.jar").unwrap();
+        let call_stack = vm.allocate_call_stack();
+        vm.add_class_path(Box::new(rt_jar_path));
+        let class_ref = vm.lookup_class(call_stack, "FieldTest").unwrap();
+        assert!(matches!(class_ref.status, ClassStatus::Initialized));
     }
 }

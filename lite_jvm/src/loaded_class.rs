@@ -4,6 +4,7 @@ use crate::runtime_field_info::RuntimeFieldInfo;
 use crate::runtime_method_info::{MethodKey, RuntimeMethodInfo};
 use class_file_reader::class_file::ClassAccessFlags;
 use indexmap::IndexMap;
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
 pub enum ClassStatus {
@@ -70,7 +71,27 @@ impl<'a> Class<'a> {
         }
         false
     }
-    pub(crate) fn get_method_info(
+
+    pub(crate) fn get_method(
+        &self,
+        method_name: &str,
+        descriptor: &str,
+    ) -> VmExecResult<MethodRef<'a>> {
+        if let Some(method) = self.methods.get(&MethodKey::new(method_name, descriptor)) {
+            //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
+            let method_ref = unsafe {
+                let const_ptr: *const RuntimeMethodInfo = method;
+                &*const_ptr
+            };
+            return Ok(method_ref);
+        } else {
+            Err(VmError::MethodNotFoundException(
+                method_name.to_string(),
+                descriptor.to_string(),
+            ))
+        }
+    }
+    pub(crate) fn get_method_by_checking_super(
         &self,
         method_name: &str,
         descriptor: &str,
@@ -100,7 +121,10 @@ impl<'a> Class<'a> {
                 }
             }
         }
-        Err(VmError::MethodNotFoundException(method_name.to_string()))
+        Err(VmError::MethodNotFoundException(
+            method_name.to_string(),
+            descriptor.to_string(),
+        ))
     }
 }
 
@@ -125,3 +149,48 @@ impl<'a> Eq for Class<'a> {}
 pub type MethodRef<'a> = &'a RuntimeMethodInfo;
 
 pub type FieldRef<'a> = &'a RuntimeFieldInfo;
+
+impl<'a> Display for Class<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.access_flags.contains(ClassAccessFlags::PUBLIC) {
+            write!(f, "public ")?;
+        }
+        if self.access_flags.contains(ClassAccessFlags::FINAL) {
+            write!(f, "final ")?;
+        }
+        if self.access_flags.contains(ClassAccessFlags::ABSTRACT) {
+            write!(f, "abstract ")?;
+        }
+        if self.access_flags.contains(ClassAccessFlags::INTERFACE) {
+            write!(f, "interface {}", self.name)?;
+        } else if self.access_flags.contains(ClassAccessFlags::ENUM) {
+            write!(f, "enum {}", self.name)?;
+        } else {
+            write!(f, "class {}", self.name)?;
+        }
+
+        write!(f, "flags: ({:#06x}) ", self.access_flags.bits())?;
+        for bitflags in self.access_flags.iter() {
+            match bitflags {
+                ClassAccessFlags::PUBLIC => write!(f, "ACC_PUBLIC")?,
+                ClassAccessFlags::SUPER => write!(f, "ACC_SUPER")?,
+                _ => {}
+            }
+        }
+        writeln!(f, "this_class: {}", self.name)?;
+        if let Some(super_class) = &self.super_class_name {
+            writeln!(f, "super_class: {}", super_class)?;
+        }
+        writeln!(
+            f,
+            "interfaces: {}, fields: {}, method: {}",
+            self.interface_names.len(),
+            self.fields.len(),
+            self.methods.len(),
+        )?;
+        writeln!(f, "Constant pool:")?;
+        writeln!(f, "{}", self.constant_pool)?;
+
+        Ok(())
+    }
+}

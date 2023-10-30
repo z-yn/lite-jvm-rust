@@ -1,20 +1,23 @@
 use crate::call_frame::InstructionResult::{ContinueMethodExecution, ReturnFromMethod};
 use crate::call_stack::CallStack;
 use crate::java_exception::{InvokeMethodResult, MethodCallError};
+use crate::jvm_error::VmError::ValueTypeMissMatch;
 use crate::jvm_error::{VmError, VmExecResult};
 use crate::loaded_class::{ClassRef, MethodRef};
 use crate::reference_value::Value::{
-    ArrayRef, Byte, Char, Double, Float, Int, Long, Null, ObjectRef, Short,
+    ArrayRef, Boolean, Byte, Char, Double, Float, Int, Long, Null, ObjectRef, ReturnAddress, Short,
 };
 use crate::reference_value::{
-    ArrayElement, ArrayReference, ObjectReference, ReferenceValue, Value,
+    ArrayElement, ArrayReference, ObjectReference, PrimaryType, ReferenceValue, Value,
 };
+use crate::runtime_constant_pool::RuntimeConstantPoolEntry;
 use crate::value_stack::ValueStack;
 use crate::virtual_machine::VirtualMachine;
 use class_file_reader::cesu8_byte_buffer::ByteBuffer;
 use class_file_reader::instruction::{read_one_instruction, Instruction};
 use std::ops::{BitAnd, BitOr, BitXor, Div, Mul, Rem, Shl, Shr, Sub};
 
+#[derive(Debug)]
 pub(crate) enum InstructionResult<'a> {
     ReturnFromMethod(Option<Value<'a>>),
     ContinueMethodExecution,
@@ -176,7 +179,7 @@ macro_rules! generate_math {
     ($name:ident, $variant:ident, $type:ty) => {
         fn $name<T>(&mut self, evaluator: T) -> InvokeResult<'a, ()>
         where
-            T: FnOnce($type, $type) -> $type,
+            T: FnOnce($type, $type) -> InvokeResult<'a, $type>,
         {
             let val2 = if let $variant(v) = self.pop()? {
                 v
@@ -188,7 +191,7 @@ macro_rules! generate_math {
             } else {
                 return Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch));
             };
-            let result = evaluator(val1, val2);
+            let result = evaluator(val1, val2)?;
             self.push($variant(result))
         }
     };
@@ -304,6 +307,16 @@ impl<'a> CallFrame<'a> {
     generate_if_cmp!(exec_if_acmp, ObjectRef, ObjectReference);
     generate_if_cmp!(exec_if_icmp, Int, i32);
 
+    fn exec_long_shift<T>(&mut self, evaluator: T) -> Result<(), MethodCallError<'a>>
+    where
+        T: FnOnce(i64, i32) -> Result<i64, VmError>,
+    {
+        let val2 = self.pop_int()?;
+        let val1 = self.pop_long()?;
+        let result = evaluator(val1, val2)?;
+        self.push(Long(result))
+    }
+
     fn get_local_value(&self, index: u8) -> InvokeResult<'a, Value<'a>> {
         let index = index as usize;
         if index >= self.local_variables.len() {
@@ -375,6 +388,23 @@ impl<'a> CallFrame<'a> {
 
     fn pop(&mut self) -> InvokeResult<'a, Value<'a>> {
         self.stack.pop().map_err(MethodCallError::from)
+    }
+
+    fn exec_pop2(&mut self) -> InvokeResult<'a, ()> {
+        let value_1 = self.stack.pop()?;
+        match value_1 {
+            Long(_) | Double(_) => Ok(()),
+            Boolean(_) | Byte(_) | Int(_) | Short(_) | Float(_) | ReturnAddress(_) => {
+                if let Boolean(_) | Byte(_) | Int(_) | Short(_) | Float(_) | ReturnAddress(_) =
+                    self.pop()?
+                {
+                    Ok(())
+                } else {
+                    Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch))
+                }
+            }
+            _ => Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch)),
+        }
     }
 
     fn push(&mut self, value: Value<'a>) -> InvokeResult<'a, ()> {
@@ -482,6 +512,7 @@ impl<'a> CallFrame<'a> {
         call_stack: &mut CallStack<'a>,
         instruction: Instruction,
     ) -> InvokeResult<'a, InstructionResult<'a>> {
+        println!("exec {:?}", instruction);
         match instruction {
             Instruction::Aaload => self.exec_aaload()?,
             Instruction::Aastore => self.exec_aastore()?,
@@ -524,7 +555,7 @@ impl<'a> CallFrame<'a> {
             Instruction::D2f => self.exec_d2f()?,
             Instruction::D2i => self.exec_d2i()?,
             Instruction::D2l => self.exec_d2l()?,
-            Instruction::Dadd => self.exec_double_math(|v1, v2| v1 + v2)?,
+            Instruction::Dadd => self.exec_double_math(|v1, v2| Ok(v1 + v2))?,
             Instruction::Daload => self.exec_daload()?,
             Instruction::Dastore => self.exec_dastore()?,
             Instruction::Dcmpg => self.exec_dcmp(-1)?,
@@ -532,28 +563,30 @@ impl<'a> CallFrame<'a> {
             Instruction::Dconst_0 => self.push(Double(0f64))?,
             Instruction::Dconst_1 => self.push(Double(1f64))?,
             Instruction::Ddiv => self.exec_double_math(|v1, v2| {
-                if is_double_division_returning_nan(v1, v2) {
-                    f64::NAN
-                } else {
-                    v1 / v2
-                }
+                Ok({
+                    if is_double_division_returning_nan(v1, v2) {
+                        f64::NAN
+                    } else {
+                        v1 / v2
+                    }
+                })
             })?,
             Instruction::Dload(local_index) => self.exec_dload(local_index)?,
             Instruction::Dload_0 => self.exec_dload(0)?,
             Instruction::Dload_1 => self.exec_dload(1)?,
             Instruction::Dload_2 => self.exec_dload(2)?,
             Instruction::Dload_3 => self.exec_dload(3)?,
-            Instruction::Dmul => self.exec_double_math(|v1, v2| v1 * v2)?,
+            Instruction::Dmul => self.exec_double_math(|v1, v2| Ok(v1 * v2))?,
             Instruction::Dneg => {
                 let value = self.pop_double()?;
                 self.push(Double(-value))?;
             }
             Instruction::Drem => self.exec_double_math(|v1, v2| {
-                if is_double_division_returning_nan(v1, v2) {
+                Ok(if is_double_division_returning_nan(v1, v2) {
                     f64::NAN
                 } else {
                     v1 % v2
-                }
+                })
             })?,
             Instruction::Dreturn => return self.exec_dreturn(),
             Instruction::Dstore(local_index) => self.exec_dstore(local_index)?,
@@ -561,7 +594,7 @@ impl<'a> CallFrame<'a> {
             Instruction::Dstore_1 => self.exec_dstore(1)?,
             Instruction::Dstore_2 => self.exec_dstore(2)?,
             Instruction::Dstore_3 => self.exec_dstore(3)?,
-            Instruction::Dsub => self.exec_double_math(|v1, v2| v1 - v2)?,
+            Instruction::Dsub => self.exec_double_math(|v1, v2| Ok(v1 - v2))?,
             Instruction::Dup => self.stack.dup()?,
             Instruction::Dup_x1 => self.stack.dup_x1()?,
             Instruction::Dup_x2 => self.stack.dup_x2()?,
@@ -571,7 +604,7 @@ impl<'a> CallFrame<'a> {
             Instruction::F2d => self.exec_f2d()?,
             Instruction::F2i => self.exec_f2i()?,
             Instruction::F2l => self.exec_f2l()?,
-            Instruction::Fadd => self.exec_float_math(|v1, v2| v1 + v2)?,
+            Instruction::Fadd => self.exec_float_math(|v1, v2| Ok(v1 + v2))?,
             Instruction::Faload => self.exec_faload()?,
             Instruction::Fastore => self.exec_fastore()?,
             Instruction::Fcmpl => self.exec_fcmp(1)?,
@@ -580,28 +613,30 @@ impl<'a> CallFrame<'a> {
             Instruction::Fconst_1 => self.push(Float(1f32))?,
             Instruction::Fconst_2 => self.push(Float(2f32))?,
             Instruction::Fdiv => self.exec_float_math(|v1, v2| {
-                if is_double_division_returning_nan(v1 as f64, v2 as f64) {
-                    f32::NAN
-                } else {
-                    v1 / v2
-                }
+                Ok({
+                    if is_double_division_returning_nan(v1 as f64, v2 as f64) {
+                        f32::NAN
+                    } else {
+                        v1 / v2
+                    }
+                })
             })?,
             Instruction::Fload(local_index) => self.exec_fload(local_index)?,
             Instruction::Fload_0 => self.exec_fload(0)?,
             Instruction::Fload_1 => self.exec_fload(1)?,
             Instruction::Fload_2 => self.exec_fload(2)?,
             Instruction::Fload_3 => self.exec_fload(3)?,
-            Instruction::Fmul => self.exec_float_math(|v1, v2| v1 * v2)?,
+            Instruction::Fmul => self.exec_float_math(|v1, v2| Ok(v1 * v2))?,
             Instruction::Fneg => {
                 let v = self.pop_float()?;
                 self.push(Float(-v))?;
             }
             Instruction::Frem => self.exec_float_math(|v1, v2| {
-                if is_double_division_returning_nan(v1 as f64, v2 as f64) {
+                Ok(if is_double_division_returning_nan(v1 as f64, v2 as f64) {
                     f32::NAN
                 } else {
                     v1 % v2
-                }
+                })
             })?,
             Instruction::Freturn => return self.exec_freturn(),
             Instruction::Fstore(local_index) => self.exec_fstore(local_index)?,
@@ -609,10 +644,10 @@ impl<'a> CallFrame<'a> {
             Instruction::Fstore_1 => self.exec_fstore(1)?,
             Instruction::Fstore_2 => self.exec_fstore(2)?,
             Instruction::Fstore_3 => self.exec_fstore(3)?,
-            Instruction::Fsub => self.exec_float_math(|v1, v2| v1 - v2)?,
+            Instruction::Fsub => self.exec_float_math(|v1, v2| Ok(v1 - v2))?,
             Instruction::Getfield(const_pool_index) => self.exec_get_field(const_pool_index)?,
             Instruction::Getstatic(const_pool_index) => {
-                self.exec_get_static(vm, call_stack, const_pool_index)?
+                self.exec_get_static(vm, const_pool_index)?
             }
             Instruction::Goto(code_position) => self.goto(code_position as usize),
             Instruction::Goto_w(code_position) => self.goto(code_position as usize),
@@ -622,9 +657,9 @@ impl<'a> CallFrame<'a> {
             Instruction::I2f => self.exec_i2f()?,
             Instruction::I2l => self.exec_i2l()?,
             Instruction::I2s => self.exec_i2s()?,
-            Instruction::Iadd => self.exec_int_math(|i1, i2| i1 + i2)?,
+            Instruction::Iadd => self.exec_int_math(|i1, i2| Ok(i1 + i2))?,
             Instruction::Iaload => self.exec_iaload()?,
-            Instruction::Iand => self.exec_int_math(|i1, i2| i1.bitand(i2))?,
+            Instruction::Iand => self.exec_int_math(|i1, i2| Ok(i1 & i2))?,
             Instruction::Iastore => self.exec_iastore()?,
             Instruction::Iconst_m1 => self.push(Int(-1))?,
             Instruction::Iconst_0 => self.push(Int(0))?,
@@ -634,7 +669,10 @@ impl<'a> CallFrame<'a> {
             Instruction::Iconst_4 => self.push(Int(4))?,
             Instruction::Iconst_5 => self.push(Int(5))?,
             //TODO 除以0异常，
-            Instruction::Idiv => self.exec_int_math(|i1, i2| i1.div(i2))?,
+            Instruction::Idiv => self.exec_int_math(|i1, i2| match i2 {
+                0 => Err(MethodCallError::InternalError(VmError::ArithmeticException)),
+                v => Ok(i1 / i2),
+            })?,
             Instruction::If_acmpeq(branch) => self.exec_if_acmp(branch, |a1, a2| a1 == a2)?,
             Instruction::If_acmpne(branch) => self.exec_if_acmp(branch, |a1, a2| a1 != a2)?,
             Instruction::If_icmpeq(branch) => self.exec_if_icmp(branch, |i1, i2| i1 == i2)?,
@@ -671,7 +709,7 @@ impl<'a> CallFrame<'a> {
             Instruction::Iload_1 => self.exec_iload(1)?,
             Instruction::Iload_2 => self.exec_iload(2)?,
             Instruction::Iload_3 => self.exec_iload(3)?,
-            Instruction::Imul => self.exec_int_math(|i1, i2| i1 * i2)?,
+            Instruction::Imul => self.exec_int_math(|i1, i2| Ok(i1 * i2))?,
             Instruction::Ineg => {
                 let value = self.pop_int()?;
                 self.push(Int(-value))?;
@@ -700,91 +738,185 @@ impl<'a> CallFrame<'a> {
             Instruction::Invokevirtual(_) => {
                 todo!()
             }
-            Instruction::Ior => self.exec_int_math(|i1, i2| i1.bitor(i2))?,
-            Instruction::Irem => self.exec_int_math(|i1, i2| i1.rem(i2))?,
+            Instruction::Ior => self.exec_int_math(|i1, i2| Ok(i1.bitor(i2)))?,
+            Instruction::Irem => self.exec_int_math(|i1, i2| match i2 {
+                0 => Err(MethodCallError::InternalError(VmError::ArithmeticException)),
+                _ => Ok(i1.rem(i2)),
+            })?,
             Instruction::Ireturn => {
                 return self.exec_ireturn();
             }
-            Instruction::Ishl => self.exec_int_math(|i1, i2| i1.shl(i2))?,
-            Instruction::Ishr => self.exec_int_math(|i1, i2| i1.shr(i2))?,
+            Instruction::Ishl => self.exec_int_math(|i1, i2| Ok(i1 << (i2 & 0x1f)))?,
+            Instruction::Ishr => self.exec_int_math(|i1, i2| Ok(i1 >> (i2 & 0x1f)))?,
             Instruction::Istore(local_index) => self.exec_istore(local_index)?,
             Instruction::Istore_0 => self.exec_istore(0)?,
             Instruction::Istore_1 => self.exec_istore(1)?,
             Instruction::Istore_2 => self.exec_istore(2)?,
             Instruction::Istore_3 => self.exec_istore(3)?,
-            Instruction::Isub => self.exec_int_math(|i1, i2| i1 - i2)?,
+            Instruction::Isub => self.exec_int_math(|i1, i2| Ok(i1 - i2))?,
             Instruction::Iushr => self.exec_int_math(|i1, i2| {
-                if i1 > 0 {
-                    i1 >> (i2 & 0x1f)
-                } else {
-                    ((i1 as u32) >> (i2 & 0x1f)) as i32
-                }
+                Ok({
+                    if i1 > 0 {
+                        i1 >> (i2 & 0x1f)
+                    } else {
+                        ((i1 as u32) >> (i2 & 0x1f)) as i32
+                    }
+                })
             })?,
-            Instruction::Ixor => self.exec_int_math(|i1, i2| i1.bitxor(i2))?,
-            Instruction::Jsr(_) => {
-                todo!()
-            }
-            Instruction::Jsr_w(_) => {
-                todo!()
-            }
+            Instruction::Ixor => self.exec_int_math(|i1, i2| Ok(i1.bitxor(i2)))?,
+            Instruction::Jsr(address) => self.push(ReturnAddress(address as u32))?,
+            Instruction::Jsr_w(address) => self.push(ReturnAddress(address))?,
             Instruction::L2d => self.exec_l2d()?,
             Instruction::L2f => self.exec_l2f()?,
             Instruction::L2i => self.exec_l2i()?,
-            Instruction::Ladd => self.exec_long_math(|l1, l2| l1 + l2)?,
+            Instruction::Ladd => self.exec_long_math(|l1, l2| Ok(l1 + l2))?,
             Instruction::Laload => self.exec_laload()?,
-            Instruction::Land => self.exec_long_math(|l1, l2| l1.bitand(l2))?,
+            Instruction::Land => self.exec_long_math(|l1, l2| Ok(l1.bitand(l2)))?,
             Instruction::Lastore => self.exec_lastore()?,
             Instruction::Lcmp => self.exec_lcmp(1)?,
             Instruction::Lconst_0 => self.push(Long(0))?,
             Instruction::Lconst_1 => self.push(Long(1))?,
-            Instruction::Ldc(_) => {}
-            Instruction::Ldc_w(_) => {}
-            Instruction::Ldc2_w(_) => {}
-            Instruction::Ldiv => self.exec_long_math(|l1, l2| l1.div(l2)),
-            Instruction::Lload(n) => self.exec_lstore(n)?,
-            Instruction::Lload_0 => self.exec_lstore(0)?,
-            Instruction::Lload_1 => self.exec_lstore(1)?,
-            Instruction::Lload_2 => self.exec_lstore(2)?,
-            Instruction::Lload_3 => self.exec_lstore(3)?,
-            Instruction::Lmut => self.exec_long_math(|l1, l2| l1.mul(l2)),
+            Instruction::Ldc(constant_pool_index) => self.exec_ldc(constant_pool_index as u16)?,
+            Instruction::Ldc_w(constant_pool_index) => self.exec_ldc(constant_pool_index)?,
+            Instruction::Ldc2_w(constant_pool_index) => self.exec_ldc2(constant_pool_index)?,
+            Instruction::Ldiv => self.exec_long_math(|l1, l2| match l2 {
+                0 => Err(MethodCallError::InternalError(VmError::ArithmeticException)),
+                _ => Ok(l1.div(l2)),
+            })?,
+            Instruction::Lload(n) => self.exec_lload(n)?,
+            Instruction::Lload_0 => self.exec_lload(0)?,
+            Instruction::Lload_1 => self.exec_lload(1)?,
+            Instruction::Lload_2 => self.exec_lload(2)?,
+            Instruction::Lload_3 => self.exec_lload(3)?,
+            Instruction::Lmut => self.exec_long_math(|l1, l2| Ok(l1.mul(l2)))?,
             Instruction::Lneg => {
                 let value = self.pop_long()?;
                 self.push(Long(-value))?
             }
             Instruction::Lookupswitch => {}
-            Instruction::Lor => self.exec_long_math(|l1, l2| l1.bitxor(l2)),
-            Instruction::Lrem => self.exec_long_math(|l1, l2| l1.rem(l2)),
-            Instruction::Lreturn => {}
-            Instruction::Lshl => self.exec_long_math(|l1, l2| l1.shl(l2)),
-            Instruction::Lshr => self.exec_long_math(|l1, l2| l1.shr(l2)),
+            Instruction::Lor => self.exec_long_math(|l1, l2| Ok(l1.bitxor(l2)))?,
+            Instruction::Lrem => self.exec_long_math(|l1, l2| match l2 {
+                0 => Err(MethodCallError::InternalError(VmError::ArithmeticException)),
+                _ => Ok(l1.rem(l2)),
+            })?,
+            Instruction::Lreturn => return self.exec_lreturn(),
+            Instruction::Lshl => self.exec_long_shift(|l1, l2| Ok(l1.shl(l2)))?,
+            Instruction::Lshr => self.exec_long_shift(|l1, l2| Ok(l1.shr(l2)))?,
             Instruction::Lstore(n) => self.exec_lstore(n)?,
             Instruction::Lstore_0 => self.exec_lstore(0)?,
             Instruction::Lstore_1 => self.exec_lstore(1)?,
             Instruction::Lstore_2 => self.exec_lstore(2)?,
             Instruction::Lstore_3 => self.exec_lstore(3)?,
-            Instruction::Lsub => self.exec_long_math(|l1, l2| l1.sub(l2)),
-            Instruction::Lushr => {}
-            Instruction::Lxor => self.exec_long_math(|l1, l2| l1.bitxor(l2)),
+            Instruction::Lsub => self.exec_long_math(|l1, l2| Ok(l1.sub(l2)))?,
+            Instruction::Lushr => self.exec_long_shift(|l1, l2| {
+                Ok({
+                    if l1 > 0 {
+                        l1 >> (l2 & 0x1f)
+                    } else {
+                        ((l1 as u64) >> (l2 & 0x1f)) as i64
+                    }
+                })
+            })?,
+            Instruction::Lxor => self.exec_long_math(|l1, l2| Ok(l1.bitxor(l2)))?,
             Instruction::Monitorenter => {}
             Instruction::Monitorexit => {}
             Instruction::Multianewarray(_, _) => {}
-            Instruction::New(_) => {}
-            Instruction::NewArray(_) => {}
+            Instruction::New(constant_pool_index) => {
+                self.exec_new_object(vm, call_stack, constant_pool_index)?
+            }
+            Instruction::NewArray(a_type) => self.exec_new_array(vm, a_type)?,
             Instruction::Nop => {}
-            Instruction::Pop => self.pop()?,
-            Instruction::Pop2 => {}
-            Instruction::Putfield(_) => {}
-            Instruction::Putstatic(_) => {}
-            Instruction::Ret(_) => {}
+            Instruction::Pop => {
+                self.pop()?;
+            }
+            Instruction::Pop2 => self.exec_pop2()?,
+            Instruction::Putfield(constant_pool_index) => {
+                self.exec_put_field(constant_pool_index)?
+            }
+            Instruction::Putstatic(constant_pool_index) => {
+                self.exec_put_static(vm, constant_pool_index)?
+            }
+            Instruction::Ret(local_var_index) => {
+                if let ReturnAddress(address) = self.get_local_value(local_var_index)? {
+                    self.goto(address as usize);
+                } else {
+                    return Err(MethodCallError::InternalError(ValueTypeMissMatch));
+                }
+            }
             Instruction::Return => return Ok(ReturnFromMethod(None)),
             Instruction::Saload => self.exec_saload()?,
             Instruction::Sastore => self.exec_sastore()?,
             Instruction::Sipush(value) => self.push(Short(value))?,
-            Instruction::Swap => {}
+            Instruction::Swap => self.stack.swap()?,
             Instruction::Tableswitch => {}
             Instruction::Wide => {}
         }
         Ok(ContinueMethodExecution)
+    }
+
+    fn exec_new_object(
+        &mut self,
+        vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
+        pool_index: u16,
+    ) -> InvokeResult<'a, ()> {
+        let class_name = self.get_class_name_in_constant_pool(pool_index)?;
+        let class_ref = vm.lookup_class(call_stack, class_name)?;
+        let object_reference = vm.new_object(class_ref);
+        self.push(ObjectRef(object_reference))
+    }
+
+    fn exec_new_array(&mut self, vm: &mut VirtualMachine<'a>, a_type: u8) -> InvokeResult<'a, ()> {
+        let count = self.pop_int()?;
+        let primary_type = match a_type {
+            4 => PrimaryType::Boolean,
+            5 => PrimaryType::Char,
+            6 => PrimaryType::Float,
+            7 => PrimaryType::Double,
+            8 => PrimaryType::Byte,
+            9 => PrimaryType::Short,
+            10 => PrimaryType::Int,
+            11 => PrimaryType::Long,
+            _ => return Err(MethodCallError::InternalError(ValueTypeMissMatch)),
+        };
+        let array_ref = vm.new_array(ArrayElement::PrimaryValue(primary_type), count as usize);
+        self.push(ArrayRef(array_ref))
+    }
+
+    fn get_constant_pool(&self, offset: u16) -> VmExecResult<&RuntimeConstantPoolEntry> {
+        self.class_ref.constant_pool.get(offset)
+    }
+
+    fn exec_ldc(&mut self, index: u16) -> InvokeResult<'a, ()> {
+        let value = self.get_constant_pool(index)?;
+        match value {
+            RuntimeConstantPoolEntry::Integer(i) => self.push(Int(*i)),
+            RuntimeConstantPoolEntry::Float(f) => self.push(Float(*f)),
+
+            RuntimeConstantPoolEntry::ClassReference(_) => {
+                todo!("新建一个java.lang.Class类的实例")
+            }
+            RuntimeConstantPoolEntry::StringReference(_) => {
+                todo!("新建一个java.lang.String类的实例")
+            }
+
+            RuntimeConstantPoolEntry::MethodReference(_, _, _) => {
+                todo!("新建一个java.lang.invoke.MethodType")
+            }
+            RuntimeConstantPoolEntry::MethodHandler(_, _, _, _) => {
+                todo!("新建一个java.lang.invoke.MethodHandle")
+            }
+            _ => Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch)),
+        }
+    }
+
+    fn exec_ldc2(&mut self, index: u16) -> InvokeResult<'a, ()> {
+        let value = self.get_constant_pool(index)?;
+        match value {
+            RuntimeConstantPoolEntry::Long(i) => self.push(Long(*i)),
+            RuntimeConstantPoolEntry::Double(f) => self.push(Double(*f)),
+            _ => Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch)),
+        }
     }
 
     fn exec_if<T>(&mut self, branch: u16, evaluator: T) -> InvokeResult<'a, ()>
@@ -813,20 +945,42 @@ impl<'a> CallFrame<'a> {
             let field_value = object_ref.get_field_by_name(field_name)?;
             return self.push(field_value);
         }
-        Err(MethodCallError::InternalError(
-            VmError::MethodNotFoundException("".to_string()),
-        ))
+        Err(MethodCallError::InternalError(ValueTypeMissMatch))
+    }
+
+    fn exec_put_field(&mut self, field_index: u16) -> InvokeResult<'a, ()> {
+        let value = self.pop()?;
+        let object = self.pop()?;
+        if let ObjectRef(object_ref) = object {
+            let (class_name, field_name, _descriptor) =
+                self.get_field_in_constant_pool(field_index)?;
+            let class_ref = object_ref.get_class();
+            //TODO 校验描述符类型
+            assert_eq!(class_ref.name, class_name);
+            //TODO 校验值类型
+            object_ref.set_field_by_name(field_name, &value)?
+        }
+        Err(MethodCallError::InternalError(ValueTypeMissMatch))
     }
 
     fn exec_get_static(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut CallStack<'a>,
         field_index: u16,
     ) -> InvokeResult<'a, ()> {
         let (class_name, field_name, _descriptor) = self.get_field_in_constant_pool(field_index)?;
-        let value = vm.get_static_field(call_stack, class_name, field_name)?;
+        let value = vm.get_static_field(class_name, field_name)?;
         self.push(value)
+    }
+
+    fn exec_put_static(
+        &mut self,
+        vm: &mut VirtualMachine<'a>,
+        field_index: u16,
+    ) -> InvokeResult<'a, ()> {
+        let static_value = self.pop()?;
+        let (class_name, field_name, _descriptor) = self.get_field_in_constant_pool(field_index)?;
+        vm.set_static_field(class_name, field_name, static_value)
     }
 
     pub fn execute(
@@ -836,10 +990,20 @@ impl<'a> CallFrame<'a> {
     ) -> InvokeMethodResult<'a> {
         loop {
             let instruction = read_one_instruction(&mut self.byte_buffer).unwrap();
+            println!("read_one_instruction = >{:?}", instruction);
             let result = self.execute_instruction(vm, call_stack, instruction);
-            //TODO 处理异常情况
-            if let Ok(InstructionResult::ReturnFromMethod(return_value)) = result {
-                return Ok(return_value);
+            println!(
+                "exec_one_instruction = >{:?} get result {:?}",
+                instruction, result
+            );
+            match result {
+                Ok(ReturnFromMethod(return_value)) => {
+                    return Ok(return_value);
+                }
+                Err(e) => {
+                    return Err(e);
+                }
+                _ => {}
             }
         }
     }

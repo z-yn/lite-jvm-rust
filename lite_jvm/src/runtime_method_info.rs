@@ -20,10 +20,10 @@ pub struct RuntimeMethodInfo {
 // MethodParameters	method_info	52.0
 impl RuntimeMethodInfo {
     pub(crate) fn is_native(&self) -> bool {
-        todo!()
+        self.access_flags.contains(MethodAccessFlags::NATIVE)
     }
     pub(crate) fn is_static(&self) -> bool {
-        todo!()
+        self.access_flags.contains(MethodAccessFlags::STATIC)
     }
     pub fn from(
         method_info: MethodInfo,

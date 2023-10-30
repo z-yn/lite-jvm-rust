@@ -26,6 +26,7 @@ bitflags! {
     /// |ACC_MODULE  |0x8000|	Is a module, not a class or interface.|
     ///
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct ClassAccessFlags: u16 {
         const PUBLIC = 0x0001;
         const FINAL = 0x0010;
@@ -76,14 +77,49 @@ impl ClassFile {
 
 impl Display for ClassFile {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Class {}", self.this_class_name)?;
-        if let Some(super_class) = &self.super_class_name {
-            write!(f, "(extends {})", super_class)?;
+        if self.access_flags.contains(ClassAccessFlags::PUBLIC) {
+            write!(f, "public ")?;
         }
-        // writeln!(f, "accessFlag:{:?}", self.access_flags)?;
-        writeln!(f, "version: {}", self.version)?;
-        writeln!(f, "constants:")?;
+        if self.access_flags.contains(ClassAccessFlags::FINAL) {
+            write!(f, "final ")?;
+        }
+        if self.access_flags.contains(ClassAccessFlags::ABSTRACT) {
+            write!(f, "abstract ")?;
+        }
+        if self.access_flags.contains(ClassAccessFlags::INTERFACE) {
+            write!(f, "interface {}", self.this_class_name)?;
+        } else if self.access_flags.contains(ClassAccessFlags::ENUM) {
+            write!(f, "enum {}", self.this_class_name)?;
+        } else {
+            write!(f, "class {}", self.this_class_name)?;
+        }
+
+        let version = self.version.version();
+        writeln!(f, "minor version: {}", version.0)?;
+        writeln!(f, "major version: {}", version.1)?;
+        write!(f, "flags: ({:#06x}) ", self.access_flags.bits())?;
+        for bitflags in self.access_flags.iter() {
+            match bitflags {
+                ClassAccessFlags::PUBLIC => write!(f, "ACC_PUBLIC")?,
+                ClassAccessFlags::SUPER => write!(f, "ACC_SUPER")?,
+                _ => {}
+            }
+        }
+        writeln!(f, "this_class: {}", self.this_class_name)?;
+        if let Some(super_class) = &self.super_class_name {
+            writeln!(f, "super_class: {}", super_class)?;
+        }
+        writeln!(
+            f,
+            "interfaces: {}, fields: {}, method: {}, attributes: {}",
+            self.interface_names.len(),
+            self.field_info.len(),
+            self.method_info.len(),
+            self.attribute_info.len()
+        )?;
+        writeln!(f, "Constant pool:")?;
         write!(f, "{}", self.constant_pool)?;
+
         Ok(())
     }
 }

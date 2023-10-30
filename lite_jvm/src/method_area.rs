@@ -23,12 +23,16 @@ impl<'a> MethodArea<'a> {
         self.classes.len()
     }
 
-    pub fn get_mut(&'a mut self, class_ref: ClassRef<'a>) -> Option<&'a mut Class<'a>> {
+    pub fn get_mut(&mut self, class_ref: ClassRef<'a>) -> Option<&'a mut Class<'a>> {
         for mut_ref in self.classes.iter_mut() {
             let v1 = mut_ref as *const Class;
             let v2 = class_ref as *const Class;
             if v1 == v2 {
-                return Some(mut_ref);
+                let ptr = unsafe {
+                    let str_ptr: *mut Class = mut_ref;
+                    &mut *str_ptr
+                };
+                return Some(ptr);
             }
         }
         None
@@ -155,12 +159,13 @@ mod tests {
 
         area.add_class_path(Box::new(rt_jar_path));
         let result = area.load_class("FieldTest").unwrap();
+        let s = format!("{result}");
 
         assert!(matches!(result.status, ClassStatus::Loaded));
         assert_eq!(2, area.num_of_classes());
 
         let main_method = result
-            .get_method_info("main", "([Ljava/lang/String;)V")
+            .get_method_by_checking_super("main", "([Ljava/lang/String;)V")
             .unwrap();
 
         assert_eq!(main_method.name, "main");

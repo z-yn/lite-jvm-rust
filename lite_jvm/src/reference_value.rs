@@ -33,6 +33,7 @@ pub enum Value<'a> {
     Char(u16),
     Float(f32),
     Double(f64),
+    ReturnAddress(u32),
     ObjectRef(ObjectReference<'a>),
     ArrayRef(ArrayReference<'a>),
     Null,

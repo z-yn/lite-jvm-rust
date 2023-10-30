@@ -4,8 +4,8 @@ use thiserror::Error;
 pub enum VmError {
     #[error("ClassNotFoundException {0}")]
     ClassNotFoundException(String),
-    #[error("MethodNotFoundException {0}")]
-    MethodNotFoundException(String),
+    #[error("MethodNotFoundException {0} {1}")]
+    MethodNotFoundException(String, String),
     #[error("FieldNotFoundException {0}")]
     FieldNotFoundException(String),
     #[error("InvalidAttribute {0}")]
@@ -31,6 +31,10 @@ pub enum VmError {
     PopFromEmptyStack,
     #[error("stack over flow")]
     StackOverFlow,
+    #[error("arithmetic error")]
+    ArithmeticException,
+    #[error("NotImplemented error")]
+    NotImplemented,
 }
 
 pub type VmExecResult<T> = Result<T, VmError>;
