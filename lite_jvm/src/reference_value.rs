@@ -39,14 +39,14 @@ pub enum Value<'a> {
     Null,
 }
 
-pub trait ReferenceValue {
+pub trait ReferenceValue<'a> {
     fn get_data_length(&self) -> usize;
     fn data_offset(&self) -> usize;
     fn get_header(&self) -> AllocateHeader;
     fn set_field_by_name(&self, name: &str, value: &Value<'_>) -> VmExecResult<()>;
     fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> VmExecResult<()>;
-    fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'static>>;
-    fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'static>>;
+    fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'a>>;
+    fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'a>>;
 }
 
 //数组引用分配
@@ -92,7 +92,7 @@ pub(crate) const ARRAY_HEADER_SIZE: usize = align_to_8_bytes(size_of::<ArrayHead
 
 macro_rules! read_value_at {
     ($name:ident,$variant:ident, $type:ty) => {
-        pub(crate) unsafe fn $name(&self, index: usize) -> VmExecResult<Value<'static>> {
+        pub(crate) unsafe fn $name(&self, index: usize) -> VmExecResult<Value<'a>> {
             let total_fields = self.get_data_length();
             if index >= total_fields {
                 return Err(VmError::IndexOutOfBounds);
@@ -106,7 +106,7 @@ macro_rules! read_value_at {
 
 macro_rules! read_nullable_value_at {
     ($name:ident,$variant:ident, $type:ty) => {
-        pub(crate) unsafe fn $name(&self, index: usize) -> VmExecResult<Value<'static>> {
+        pub(crate) unsafe fn $name(&self, index: usize) -> VmExecResult<Value<'a>> {
             let total_fields = self.get_data_length();
             if index >= total_fields {
                 return Err(VmError::IndexOutOfBounds);
@@ -263,8 +263,8 @@ impl<'a> ArrayReference<'a> {
     read_value_at!(read_float, Float, f32);
     read_value_at!(read_double, Double, f64);
     read_value_at!(read_boolean, Boolean, bool);
-    read_nullable_value_at!(read_object, ObjectRef, ObjectReference<'static>);
-    read_nullable_value_at!(read_array, ArrayRef, ArrayReference<'static>);
+    read_nullable_value_at!(read_object, ObjectRef, ObjectReference<'a>);
+    read_nullable_value_at!(read_array, ArrayRef, ArrayReference<'a>);
 
     write_value_at!(write_byte, Byte, i8);
     write_value_at!(write_int, Int, i32);
@@ -305,7 +305,7 @@ impl<'a> ArrayReference<'a> {
     }
 }
 
-impl<'a> ReferenceValue for ArrayReference<'a> {
+impl<'a> ReferenceValue<'a> for ArrayReference<'a> {
     fn get_data_length(&self) -> usize {
         self.get_array_header().array_size
     }
@@ -340,11 +340,11 @@ impl<'a> ReferenceValue for ArrayReference<'a> {
             }
         }
     }
-    fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'static>> {
+    fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'a>> {
         self.get_field_by_offset(name.parse::<usize>().unwrap())
     }
 
-    fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'static>> {
+    fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'a>> {
         let element_type = self.get_array_type();
         unsafe {
             match element_type {
@@ -432,7 +432,7 @@ impl<'a> ObjectReference<'a> {
     }
 
     //TODO 校验Value与RuntimeFieldInfo是否一致
-    unsafe fn read_value_at_offset(&self, field: FieldRef) -> VmExecResult<Value<'static>> {
+    unsafe fn read_value_at_offset(&self, field: FieldRef) -> VmExecResult<Value<'a>> {
         let offset = field.offset - 1;
         assert!(offset > 0);
         match field.descriptor.as_str() {
@@ -470,7 +470,7 @@ impl<'a> ObjectReference<'a> {
     }
 }
 
-impl<'a> ReferenceValue for ObjectReference<'a> {
+impl<'a> ReferenceValue<'a> for ObjectReference<'a> {
     fn get_data_length(&self) -> usize {
         self.get_class().total_num_of_fields
     }
@@ -507,7 +507,7 @@ impl<'a> ReferenceValue for ObjectReference<'a> {
         unsafe { self.write_value_at_offset(field, value) }
     }
 
-    fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'static>> {
+    fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'a>> {
         //先查找自身类中的field
         let class = self.get_class();
         if let Some(field) = class.fields.get(name) {
@@ -521,7 +521,7 @@ impl<'a> ReferenceValue for ObjectReference<'a> {
         Err(VmError::FieldNotFoundException(name.to_string()))
     }
 
-    fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'static>> {
+    fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'a>> {
         let class_ref = self.get_class();
         let field = class_ref.get_field(offset)?;
         unsafe { self.read_value_at_offset(field) }

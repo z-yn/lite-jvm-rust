@@ -671,7 +671,7 @@ impl<'a> CallFrame<'a> {
             //TODO 除以0异常，
             Instruction::Idiv => self.exec_int_math(|i1, i2| match i2 {
                 0 => Err(MethodCallError::InternalError(VmError::ArithmeticException)),
-                v => Ok(i1 / i2),
+                _ => Ok(i1 / i2),
             })?,
             Instruction::If_acmpeq(branch) => self.exec_if_acmp(branch, |a1, a2| a1 == a2)?,
             Instruction::If_acmpne(branch) => self.exec_if_acmp(branch, |a1, a2| a1 != a2)?,

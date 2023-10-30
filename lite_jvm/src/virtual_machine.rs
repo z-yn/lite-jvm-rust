@@ -110,15 +110,11 @@ impl<'a> VirtualMachine<'a> {
         Ok((class_ref, method_ref))
     }
 
-    pub fn new_object(&mut self, class_ref: ClassRef) -> ObjectReference<'static> {
+    pub fn new_object(&mut self, class_ref: ClassRef) -> ObjectReference<'a> {
         self.object_heap.allocate_object(class_ref).unwrap()
     }
 
-    pub fn new_array(
-        &mut self,
-        array_element: ArrayElement,
-        length: usize,
-    ) -> ArrayReference<'static> {
+    pub fn new_array(&mut self, array_element: ArrayElement, length: usize) -> ArrayReference<'a> {
         self.object_heap
             .allocate_array(array_element, length)
             .unwrap()
