@@ -21,6 +21,7 @@ pub enum PrimaryType {
     Short,
     Boolean,
 }
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub enum Value<'a> {
     #[default]
@@ -37,6 +38,15 @@ pub enum Value<'a> {
     ObjectRef(ObjectReference<'a>),
     ArrayRef(ArrayReference<'a>),
     Null,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValueType {
+    Primary(PrimaryType),
+    Object(String),
+    //类型，dimension
+    PrimaryArray(PrimaryType, usize),
+    ObjectArray(String, usize),
+    Void,
 }
 
 pub trait ReferenceValue<'a> {
@@ -386,7 +396,7 @@ impl<'a> ObjectReference<'a> {
         }
     }
 
-    pub(crate) fn get_class(&self) -> ClassRef {
+    pub(crate) fn get_class(&self) -> ClassRef<'a> {
         unsafe {
             let class_ref_ptr = self.data.add(ALLOC_HEADER_SIZE);
             std::ptr::read(class_ref_ptr as *const ObjectHeader).class_ref
@@ -411,7 +421,6 @@ impl<'a> ObjectReference<'a> {
         value: &Value<'a>,
     ) -> VmExecResult<()> {
         let offset = field.offset - 1;
-        assert!(offset > 0);
         match field.descriptor.as_str() {
             "B" => self.write_byte(offset, value),
             "C" => self.write_char(offset, value),

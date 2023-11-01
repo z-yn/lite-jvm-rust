@@ -1,11 +1,14 @@
 use crate::call_stack::CallStack;
 use crate::class_finder::ClassPath;
 use crate::java_exception::{InvokeMethodResult, MethodCallError};
-use crate::jvm_error::VmExecResult;
-use crate::loaded_class::{ClassRef, ClassStatus, MethodRef};
+use crate::loaded_class::{Class, ClassRef, ClassStatus, MethodRef};
 use crate::method_area::MethodArea;
 use crate::object_heap::ObjectHeap;
-use crate::reference_value::{ArrayElement, ArrayReference, ObjectReference, Value};
+use crate::reference_value::Value::Null;
+use crate::reference_value::{
+    ArrayElement, ArrayReference, ObjectReference, PrimaryType, ReferenceValue, Value,
+};
+use crate::runtime_attribute_info::ConstantValueAttribute;
 use crate::static_field_area::StaticArea;
 use typed_arena::Arena;
 
@@ -62,9 +65,75 @@ impl<'a> VirtualMachine<'a> {
         self.method_area.add_class_path(class_path);
     }
 
-    fn link_class(&mut self, class_ref: ClassRef<'a>) -> VmExecResult<()> {
+    pub fn new_java_lang_class_object(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        class_name: &str,
+    ) -> Result<ObjectReference<'a>, MethodCallError<'a>> {
+        let class_ref = self.lookup_class(call_stack, class_name)?;
+        let class_object = self.new_object_by_class_name(call_stack, "java/lang/Class")?;
+        let string_object = self.new_java_lang_string_object(call_stack, &class_ref.name)?;
+        class_object.set_field_by_name("name", &Value::ObjectRef(string_object))?;
+        Ok(class_object)
+    }
+
+    pub fn new_java_lang_string_object(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        value: &str,
+    ) -> Result<ObjectReference<'a>, MethodCallError<'a>> {
+        let char_array: Vec<Value<'a>> =
+            value.encode_utf16().map(|c| Value::Int(c as i32)).collect();
+        let array_ref = self.new_array(
+            ArrayElement::PrimaryValue(PrimaryType::Int),
+            char_array.len(),
+        );
+        char_array
+            .into_iter()
+            .enumerate()
+            .for_each(|(index, value)| array_ref.set_field_by_offset(index, &value).unwrap());
+
+        let object = self.new_object_by_class_name(call_stack, "java/lang/String")?;
+        object.set_field_by_name("value", &Value::ArrayRef(array_ref))?;
+        object.set_field_by_name("hash", &Value::Int(0))?;
+        Ok(object)
+    }
+
+    fn init_static_fields(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        class_ref: &mut Class<'a>,
+        ro_class_ref: ClassRef<'a>,
+    ) -> Result<(), MethodCallError<'a>> {
+        for (field_name, field) in &class_ref.fields {
+            if field.is_static() {
+                if let Some(v) = &field.constant_value {
+                    let value = match v {
+                        ConstantValueAttribute::Int(i) => Value::Int(*i),
+                        ConstantValueAttribute::Float(f) => Value::Float(*f),
+                        ConstantValueAttribute::Long(l) => Value::Long(*l),
+                        ConstantValueAttribute::Double(d) => Value::Double(*d),
+                        ConstantValueAttribute::String(str) => Value::ObjectRef(
+                            self.new_java_lang_string_object(call_stack, str).unwrap(),
+                        ),
+                    };
+                    self.static_area
+                        .set_static_field(ro_class_ref, field_name, value)
+                }
+            };
+            //TODO 动态初始化实现
+        }
+        Ok(())
+    }
+
+    fn link_class(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        class_ref: ClassRef<'a>,
+    ) -> Result<(), MethodCallError<'a>> {
         if let ClassStatus::Loaded = class_ref.status {
             if let Some(mut_class_ref) = self.method_area.get_mut(class_ref) {
+                self.init_static_fields(call_stack, mut_class_ref, class_ref)?;
                 mut_class_ref.status = ClassStatus::Linked;
             }
         }
@@ -92,8 +161,8 @@ impl<'a> VirtualMachine<'a> {
         class_name: &str,
     ) -> Result<ClassRef<'a>, MethodCallError<'a>> {
         let class = self.method_area.load_class(class_name)?;
-        assert_eq!(class.name, "FieldTest");
-        self.link_class(class)?;
+        //TODO remove unwrap
+        self.link_class(call_stack, class).unwrap();
         self.initialize_class(call_stack, class)?;
         Ok(class)
     }
@@ -114,23 +183,35 @@ impl<'a> VirtualMachine<'a> {
         self.object_heap.allocate_object(class_ref).unwrap()
     }
 
+    pub fn new_object_by_class_name(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        class_name: &str,
+    ) -> Result<ObjectReference<'a>, MethodCallError<'a>> {
+        let class_ref = self.lookup_class(call_stack, class_name)?;
+        Ok(self.new_object(class_ref))
+    }
+
     pub fn new_array(&mut self, array_element: ArrayElement, length: usize) -> ArrayReference<'a> {
         self.object_heap
             .allocate_array(array_element, length)
             .unwrap()
     }
 
-    pub fn get_static_field(
+    pub fn get_static(&self, class_ref: ClassRef<'a>, field_name: &str) -> Option<&Value<'a>> {
+        self.static_area.get_static_field(class_ref, field_name)
+    }
+    pub fn get_static_field_by_class_name(
         &mut self,
         class_name: &str,
         field_name: &str,
-    ) -> Result<Value<'a>, MethodCallError<'a>> {
+    ) -> Result<Option<&Value<'a>>, MethodCallError<'a>> {
         let class_ref = self.method_area.load_class(class_name)?;
         let value = self.static_area.get_static_field(class_ref, field_name);
         Ok(value)
     }
 
-    pub fn set_static_field(
+    pub fn set_static_field_by_class_name(
         &mut self,
         class_name: &str,
         field_name: &str,
@@ -149,7 +230,8 @@ impl<'a> VirtualMachine<'a> {
         object: Option<ObjectReference<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
-        todo!()
+        //TODO
+        Ok(None)
     }
     pub fn invoke_method(
         &mut self,
@@ -184,6 +266,7 @@ mod tests {
     fn test_exec() {
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
         use crate::loaded_class::ClassStatus;
+        use crate::reference_value::Value;
         use crate::virtual_machine::VirtualMachine;
         let mut vm = VirtualMachine::new(102400);
         let file_system_path = FileSystemClassPath::new("./resources").unwrap();
@@ -193,5 +276,7 @@ mod tests {
         vm.add_class_path(Box::new(rt_jar_path));
         let class_ref = vm.lookup_class(call_stack, "FieldTest").unwrap();
         assert!(matches!(class_ref.status, ClassStatus::Initialized));
+        let an_int = vm.get_static(class_ref, "anInt");
+        assert!(matches!(an_int, Some(Value::Int(2))))
     }
 }

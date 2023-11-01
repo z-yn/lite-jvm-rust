@@ -11,7 +11,14 @@ impl<'a> ValueStack<'a> {
             stack: Vec::with_capacity(max_size),
         }
     }
-
+    pub(crate) fn pop_n(&mut self, n: usize) -> VmExecResult<Vec<Value<'a>>> {
+        let mut vec = Vec::with_capacity(n);
+        (0..n).for_each(|_| vec.push(Value::Null));
+        for i in 1..=n {
+            vec[n - i] = self.pop()?
+        }
+        Ok(vec)
+    }
     pub(crate) fn pop(&mut self) -> VmExecResult<Value<'a>> {
         self.stack.pop().ok_or(VmError::PopFromEmptyStack)
     }

@@ -1,5 +1,3 @@
-extern crate core;
-
 pub mod bootstrap_class_loader;
 pub mod call_frame;
 pub mod call_stack;

@@ -6,6 +6,7 @@ use crate::jvm_error::{VmError, VmExecResult};
 use crate::loaded_class::{ClassRef, MethodRef};
 use crate::reference_value::Value::{
     ArrayRef, Boolean, Byte, Char, Double, Float, Int, Long, Null, ObjectRef, ReturnAddress, Short,
+    Uninitialized,
 };
 use crate::reference_value::{
     ArrayElement, ArrayReference, ObjectReference, PrimaryType, ReferenceValue, Value,
@@ -125,12 +126,16 @@ macro_rules! generate_load {
 }
 
 macro_rules! generate_store {
-    ($name:ident, $($variant:ident),+) => {
+    ($name:ident, $variant:ident) => {
         fn $name(&mut self, index: u8) -> InvokeResult<'a, ()> {
-            let object_ref = self.pop_object_or_null()?;
-            self.local_variables
-                .insert(index as usize, object_ref.clone());
-            Ok(())
+            let value = self.pop()?;
+            match value {
+                $variant(..) => {
+                    self.local_variables[index as usize] = value;
+                    Ok(())
+                }
+                _ => Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch)),
+            }
         }
     };
 }
@@ -224,14 +229,20 @@ macro_rules! generate_cmp {
 }
 
 impl<'a> CallFrame<'a> {
-    pub fn new(class_ref: ClassRef<'a>, method_ref: MethodRef<'a>) -> CallFrame<'a> {
+    pub fn new(
+        class_ref: ClassRef<'a>,
+        method_ref: MethodRef<'a>,
+        mut local_variables: Vec<Value<'a>>,
+    ) -> CallFrame<'a> {
         let code_attr = method_ref.code.as_ref().expect("Should Has Code");
+        let n = code_attr.max_locals as usize;
+        (0..n).for_each(|_| local_variables.push(Uninitialized));
         CallFrame {
             class_ref,
             method_ref,
             byte_buffer: ByteBuffer::new(&code_attr.code),
             // pc: ProgramCounter(0),
-            local_variables: vec![],
+            local_variables,
             stack: ValueStack::new(code_attr.max_stack as usize),
         }
     }
@@ -260,13 +271,29 @@ impl<'a> CallFrame<'a> {
     generate_array_store!(exec_dastore, Double);
     generate_array_store!(exec_bastore, Boolean, Byte);
 
-    generate_load!(exec_aload, ObjectRef);
+    fn exec_aload(&mut self, index: u8) -> InvokeResult<'a, ()> {
+        let local = self
+            .local_variables
+            .get(index as usize)
+            .ok_or(MethodCallError::InternalError(ValueTypeMissMatch))?;
+        match local {
+            ObjectRef(_) | Null => self.push(local.clone()),
+            _ => Err(MethodCallError::InternalError(ValueTypeMissMatch)),
+        }
+    }
+
     generate_load!(exec_dload, Double);
     generate_load!(exec_fload, Float);
     generate_load!(exec_iload, Int);
     generate_load!(exec_lload, Long);
 
-    generate_store!(exec_astore, ObjectRef);
+    fn exec_astore(&mut self, index: u8) -> InvokeResult<'a, ()> {
+        let object_ref = self.pop_object_or_null()?;
+        self.local_variables
+            .insert(index as usize, object_ref.clone());
+        Ok(())
+    }
+
     generate_store!(exec_dstore, Double);
     generate_store!(exec_fstore, Float);
     generate_store!(exec_istore, Int);
@@ -375,7 +402,11 @@ impl<'a> CallFrame<'a> {
             )))
         }
     }
-
+    fn pop_n(&mut self, n: usize) -> InvokeResult<'a, Vec<Value<'a>>> {
+        self.stack
+            .pop_n(n)
+            .map_err(|e| MethodCallError::InternalError(e))
+    }
     fn pop_object(&mut self) -> InvokeResult<'a, ObjectReference<'a>> {
         if let ObjectRef(v) = self.pop()? {
             Ok(v)
@@ -516,7 +547,7 @@ impl<'a> CallFrame<'a> {
         match instruction {
             Instruction::Aaload => self.exec_aaload()?,
             Instruction::Aastore => self.exec_aastore()?,
-            Instruction::Aconst_null => self.stack.push(Value::Null)?,
+            Instruction::Aconst_null => self.stack.push(Null)?,
             Instruction::Aload(local_index) => self.exec_aload(local_index)?,
             Instruction::Aload_0 => self.exec_aload(0)?,
             Instruction::Aload_1 => self.exec_aload(1)?,
@@ -549,7 +580,7 @@ impl<'a> CallFrame<'a> {
                 if is_instance_of {
                     self.push(value)?
                 } else {
-                    return Err(MethodCallError::from(VmError::ValueTypeMissMatch));
+                    return Err(MethodCallError::from(ValueTypeMissMatch));
                 }
             }
             Instruction::D2f => self.exec_d2f()?,
@@ -729,13 +760,11 @@ impl<'a> CallFrame<'a> {
             Instruction::Invokeinterface(_, _) => {
                 todo!()
             }
-            Instruction::Invokespecial(_) => {
-                todo!()
+            Instruction::Invokespecial(offset) => {
+                self.exec_invoke_special(vm, call_stack, offset)?
             }
-            Instruction::Invokestatic(_) => {
-                todo!()
-            }
-            Instruction::Invokevirtual(_) => {
+            Instruction::Invokestatic(offset) => self.exec_invoke_static(vm, call_stack, offset)?,
+            Instruction::Invokevirtual(offset) => {
                 todo!()
             }
             Instruction::Ior => self.exec_int_math(|i1, i2| Ok(i1.bitor(i2)))?,
@@ -776,8 +805,12 @@ impl<'a> CallFrame<'a> {
             Instruction::Lcmp => self.exec_lcmp(1)?,
             Instruction::Lconst_0 => self.push(Long(0))?,
             Instruction::Lconst_1 => self.push(Long(1))?,
-            Instruction::Ldc(constant_pool_index) => self.exec_ldc(constant_pool_index as u16)?,
-            Instruction::Ldc_w(constant_pool_index) => self.exec_ldc(constant_pool_index)?,
+            Instruction::Ldc(constant_pool_index) => {
+                self.exec_ldc(vm, call_stack, constant_pool_index as u16)?
+            }
+            Instruction::Ldc_w(constant_pool_index) => {
+                self.exec_ldc(vm, call_stack, constant_pool_index)?
+            }
             Instruction::Ldc2_w(constant_pool_index) => self.exec_ldc2(constant_pool_index)?,
             Instruction::Ldiv => self.exec_long_math(|l1, l2| match l2 {
                 0 => Err(MethodCallError::InternalError(VmError::ArithmeticException)),
@@ -883,22 +916,28 @@ impl<'a> CallFrame<'a> {
         self.push(ArrayRef(array_ref))
     }
 
-    fn get_constant_pool(&self, offset: u16) -> VmExecResult<&RuntimeConstantPoolEntry> {
+    fn get_constant_pool(&self, offset: u16) -> VmExecResult<&'a RuntimeConstantPoolEntry> {
         self.class_ref.constant_pool.get(offset)
     }
 
-    fn exec_ldc(&mut self, index: u16) -> InvokeResult<'a, ()> {
+    fn exec_ldc(
+        &mut self,
+        vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
+        index: u16,
+    ) -> InvokeResult<'a, ()> {
         let value = self.get_constant_pool(index)?;
         match value {
             RuntimeConstantPoolEntry::Integer(i) => self.push(Int(*i)),
             RuntimeConstantPoolEntry::Float(f) => self.push(Float(*f)),
 
-            RuntimeConstantPoolEntry::ClassReference(_) => {
-                todo!("新建一个java.lang.Class类的实例")
-            }
-            RuntimeConstantPoolEntry::StringReference(_) => {
-                todo!("新建一个java.lang.String类的实例")
-            }
+            RuntimeConstantPoolEntry::ClassReference(class_name) => self.push(ObjectRef(
+                vm.new_java_lang_class_object(call_stack, class_name)
+                    .unwrap(),
+            )),
+            RuntimeConstantPoolEntry::StringReference(str) => self.push(ObjectRef(
+                vm.new_java_lang_string_object(call_stack, str).unwrap(),
+            )),
 
             RuntimeConstantPoolEntry::MethodReference(_, _, _) => {
                 todo!("新建一个java.lang.invoke.MethodType")
@@ -906,7 +945,7 @@ impl<'a> CallFrame<'a> {
             RuntimeConstantPoolEntry::MethodHandler(_, _, _, _) => {
                 todo!("新建一个java.lang.invoke.MethodHandle")
             }
-            _ => Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch)),
+            _ => Err(MethodCallError::InternalError(ValueTypeMissMatch)),
         }
     }
 
@@ -969,8 +1008,8 @@ impl<'a> CallFrame<'a> {
         field_index: u16,
     ) -> InvokeResult<'a, ()> {
         let (class_name, field_name, _descriptor) = self.get_field_in_constant_pool(field_index)?;
-        let value = vm.get_static_field(class_name, field_name)?;
-        self.push(value)
+        let value = vm.get_static_field_by_class_name(class_name, field_name)?;
+        self.push(value.unwrap().clone())
     }
 
     fn exec_put_static(
@@ -980,7 +1019,91 @@ impl<'a> CallFrame<'a> {
     ) -> InvokeResult<'a, ()> {
         let static_value = self.pop()?;
         let (class_name, field_name, _descriptor) = self.get_field_in_constant_pool(field_index)?;
-        vm.set_static_field(class_name, field_name, static_value)
+        vm.set_static_field_by_class_name(class_name, field_name, static_value)
+    }
+
+    fn exec_invoke_special(
+        &mut self,
+        vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
+        offset: u16,
+    ) -> InvokeResult<'a, ()> {
+        if let RuntimeConstantPoolEntry::MethodReference(class_name, method_name, descriptor) =
+            self.get_constant_pool(offset)?
+        {
+            let class_ref = vm.lookup_class(call_stack, class_name)?;
+            let method_ref = class_ref.get_method(method_name, descriptor)?;
+            let method_args = &method_ref.descriptor_args_ret.args;
+            //TODO validate method_args and poped args type
+            let args = self.pop_n(method_args.len())?;
+            let object_ref = self.pop_object()?;
+            //必须是子类调用父类的方法，自身的私有方法，以及实例初始化化方法
+            assert!(object_ref.is_instance_of(class_ref));
+
+            vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?;
+            Ok(())
+        } else {
+            Err(MethodCallError::InternalError(ValueTypeMissMatch))
+        }
+    }
+    fn exec_invoke_virtual(
+        &mut self,
+        vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
+        offset: u16,
+    ) -> InvokeResult<'a, ()> {
+        if let RuntimeConstantPoolEntry::MethodReference(class_name, method_name, descriptor)
+        | RuntimeConstantPoolEntry::InterfaceMethodReference(
+            class_name,
+            method_name,
+            descriptor,
+        ) = self.get_constant_pool(offset)?
+        {
+            let mut class_ref = vm.lookup_class(call_stack, class_name)?;
+            let mut method_ref = class_ref.get_method(method_name, descriptor)?;
+            let method_args = &method_ref.descriptor_args_ret.args;
+            //TODO validate method_args and poped args type
+            let args = self.stack.pop_n(method_args.len())?;
+            let object_ref = self.pop_object()?;
+            //多态方法，方法要从当前对象去查方法实例
+            assert!(object_ref.is_instance_of(class_ref));
+            class_ref = object_ref.get_class();
+            method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
+            vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?;
+            Ok(())
+        } else {
+            Err(MethodCallError::InternalError(ValueTypeMissMatch))
+        }
+    }
+
+    fn exec_invoke_static(
+        &mut self,
+        vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
+        offset: u16,
+    ) -> InvokeResult<'a, ()> {
+        if let RuntimeConstantPoolEntry::MethodReference(class_name, method_name, descriptor)
+        | RuntimeConstantPoolEntry::InterfaceMethodReference(
+            class_name,
+            method_name,
+            descriptor,
+        ) = self.get_constant_pool(offset)?
+        {
+            let class_ref = if &self.class_ref.name != class_name {
+                vm.lookup_class(call_stack, class_name)?
+            } else {
+                self.class_ref
+            };
+            let method_ref = class_ref.get_method(method_name, descriptor)?;
+            assert!(method_ref.is_static());
+            let method_args = &method_ref.descriptor_args_ret.args;
+            //TODO validate method_args and poped args type
+            let args = self.stack.pop_n(method_args.len())?;
+            vm.invoke_method(call_stack, class_ref, method_ref, None, args)?;
+            Ok(())
+        } else {
+            Err(MethodCallError::InternalError(ValueTypeMissMatch))
+        }
     }
 
     pub fn execute(
@@ -988,14 +1111,13 @@ impl<'a> CallFrame<'a> {
         vm: &mut VirtualMachine<'a>,
         call_stack: &mut CallStack<'a>,
     ) -> InvokeMethodResult<'a> {
+        println!(
+            "invoke method=> {}:{}->{}",
+            self.class_ref.name, self.method_ref.name, self.method_ref.descriptor
+        );
         loop {
             let instruction = read_one_instruction(&mut self.byte_buffer).unwrap();
-            println!("read_one_instruction = >{:?}", instruction);
             let result = self.execute_instruction(vm, call_stack, instruction);
-            println!(
-                "exec_one_instruction = >{:?} get result {:?}",
-                instruction, result
-            );
             match result {
                 Ok(ReturnFromMethod(return_value)) => {
                     return Ok(return_value);

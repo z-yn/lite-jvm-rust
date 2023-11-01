@@ -42,7 +42,14 @@ impl<'a> CallStack<'a> {
         if method_ref.is_native() {
             return Err(VmError::NotImplemented);
         };
-        let new_frame = self.arena.alloc(CallFrame::new(class_ref, method_ref));
+        let locals: Vec<Value<'a>> = object
+            .map(Value::ObjectRef)
+            .into_iter()
+            .chain(args.into_iter())
+            .collect();
+        let new_frame = self
+            .arena
+            .alloc(CallFrame::new(class_ref, method_ref, locals));
         let frame = CallFrameRef(new_frame);
         self.frames.push(frame.clone());
         Ok(frame)

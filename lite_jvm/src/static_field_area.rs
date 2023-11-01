@@ -1,5 +1,5 @@
 use crate::loaded_class::ClassRef;
-use crate::reference_value::Value;
+use crate::reference_value::{ObjectReference, Value};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
@@ -7,20 +7,30 @@ use std::collections::HashMap;
 
 pub(crate) struct StaticArea<'a> {
     fields: HashMap<ClassRef<'a>, IndexMap<String, Value<'a>>>,
+    string_constant_pool: HashMap<&'a str, ObjectReference<'a>>,
 }
 impl<'a> StaticArea<'a> {
     pub(crate) fn new() -> StaticArea<'a> {
         StaticArea {
             fields: HashMap::new(),
+            string_constant_pool: Default::default(),
         }
     }
-    pub(crate) fn get_static_field(&self, class_ref: ClassRef<'a>, field_name: &str) -> Value<'a> {
-        self.fields
-            .get(class_ref)
-            .unwrap()
-            .get(field_name)
-            .unwrap()
-            .clone()
+
+    pub(crate) fn get_string(&self, str: &str) -> Option<&ObjectReference<'a>> {
+        self.string_constant_pool.get(str)
+    }
+
+    pub(crate) fn cache_string(&self, str: &str) -> Option<&ObjectReference<'a>> {
+        self.string_constant_pool.get(str)
+    }
+    pub(crate) fn get_static_field(
+        &self,
+        class_ref: ClassRef<'a>,
+        field_name: &str,
+    ) -> Option<&Value<'a>> {
+        let map = self.fields.get(class_ref)?;
+        map.get(field_name)
     }
 
     pub(crate) fn set_static_field(

@@ -8,9 +8,9 @@ public class FieldTest {
     private Long c = 1L;
     private double fieldDouble = 100d;
     private float fieldFloat = 50f;
-    public static int anInt = 1;
+    public static int an_int = 1;
     static {
-        anInt = 2;
+        an_int = 2;
     }
 
     public static void main(String[] args) {
