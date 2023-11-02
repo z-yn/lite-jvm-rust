@@ -1,10 +1,11 @@
 use crate::call_stack::CallStack;
 use crate::class_finder::ClassPath;
 use crate::java_exception::{InvokeMethodResult, MethodCallError};
+use crate::jvm_error::VmExecResult;
 use crate::loaded_class::{Class, ClassRef, ClassStatus, MethodRef};
 use crate::method_area::MethodArea;
+use crate::native_method_area::NativeMethodArea;
 use crate::object_heap::ObjectHeap;
-use crate::reference_value::Value::Null;
 use crate::reference_value::{
     ArrayElement, ArrayReference, ObjectReference, PrimaryType, ReferenceValue, Value,
 };
@@ -49,6 +50,7 @@ pub struct VirtualMachine<'a> {
     object_heap: ObjectHeap<'a>,
     call_stacks: Arena<CallStack<'a>>,
     static_area: StaticArea<'a>,
+    native_method_area: NativeMethodArea<'a>,
 }
 
 impl<'a> VirtualMachine<'a> {
@@ -58,6 +60,7 @@ impl<'a> VirtualMachine<'a> {
             object_heap: ObjectHeap::new(heap_size),
             call_stacks: Arena::new(),
             static_area: StaticArea::new(),
+            native_method_area: NativeMethodArea::new_with_default_native(),
         }
     }
 
@@ -70,7 +73,7 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut CallStack<'a>,
         class_name: &str,
     ) -> Result<ObjectReference<'a>, MethodCallError<'a>> {
-        let class_ref = self.lookup_class(call_stack, class_name)?;
+        let class_ref = self.lookup_class_and_initialize(call_stack, class_name)?;
         let class_object = self.new_object_by_class_name(call_stack, "java/lang/Class")?;
         let string_object = self.new_java_lang_string_object(call_stack, &class_ref.name)?;
         class_object.set_field_by_name("name", &Value::ObjectRef(string_object))?;
@@ -85,7 +88,7 @@ impl<'a> VirtualMachine<'a> {
         let char_array: Vec<Value<'a>> =
             value.encode_utf16().map(|c| Value::Int(c as i32)).collect();
         let array_ref = self.new_array(
-            ArrayElement::PrimaryValue(PrimaryType::Int),
+            ArrayElement::PrimaryValue(PrimaryType::Char),
             char_array.len(),
         );
         char_array
@@ -155,18 +158,16 @@ impl<'a> VirtualMachine<'a> {
         }
         Ok(())
     }
-    pub fn lookup_class(
+    pub fn lookup_class_and_initialize(
         &mut self,
         call_stack: &mut CallStack<'a>,
         class_name: &str,
     ) -> Result<ClassRef<'a>, MethodCallError<'a>> {
         let class = self.method_area.load_class(class_name)?;
-        //TODO remove unwrap
-        self.link_class(call_stack, class).unwrap();
+        self.link_class(call_stack, class)?;
         self.initialize_class(call_stack, class)?;
         Ok(class)
     }
-
     pub fn look_method(
         &mut self,
         call_stack: &mut CallStack<'a>,
@@ -174,7 +175,7 @@ impl<'a> VirtualMachine<'a> {
         method_name: &str,
         descriptor: &str,
     ) -> Result<(ClassRef, MethodRef), MethodCallError<'a>> {
-        let class_ref = self.lookup_class(call_stack, class_name)?;
+        let class_ref = self.lookup_class_and_initialize(call_stack, class_name)?;
         let method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
         Ok((class_ref, method_ref))
     }
@@ -188,7 +189,7 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut CallStack<'a>,
         class_name: &str,
     ) -> Result<ObjectReference<'a>, MethodCallError<'a>> {
-        let class_ref = self.lookup_class(call_stack, class_name)?;
+        let class_ref = self.lookup_class_and_initialize(call_stack, class_name)?;
         Ok(self.new_object(class_ref))
     }
 
@@ -201,23 +202,39 @@ impl<'a> VirtualMachine<'a> {
     pub fn get_static(&self, class_ref: ClassRef<'a>, field_name: &str) -> Option<&Value<'a>> {
         self.static_area.get_static_field(class_ref, field_name)
     }
+    pub fn get_class_by_name(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        class_name: &str,
+    ) -> Result<ClassRef<'a>, MethodCallError<'a>> {
+        //防止重复加载
+        let class_ref = if !self.method_area.is_class_loaded(class_name) {
+            self.lookup_class_and_initialize(call_stack, class_name)?
+        } else {
+            self.method_area.load_class(class_name)?
+        };
+        Ok(class_ref)
+    }
     pub fn get_static_field_by_class_name(
         &mut self,
+        call_stack: &mut CallStack<'a>,
         class_name: &str,
         field_name: &str,
     ) -> Result<Option<&Value<'a>>, MethodCallError<'a>> {
-        let class_ref = self.method_area.load_class(class_name)?;
+        //防止重复加载
+        let class_ref = self.get_class_by_name(call_stack, class_name)?;
         let value = self.static_area.get_static_field(class_ref, field_name);
         Ok(value)
     }
 
     pub fn set_static_field_by_class_name(
         &mut self,
+        call_stack: &mut CallStack<'a>,
         class_name: &str,
         field_name: &str,
         value: Value<'a>,
     ) -> Result<(), MethodCallError<'a>> {
-        let class_ref = self.method_area.load_class(class_name)?;
+        let class_ref = self.get_class_by_name(call_stack, class_name)?;
         self.static_area
             .set_static_field(class_ref, field_name, value);
         Ok(())
@@ -225,14 +242,28 @@ impl<'a> VirtualMachine<'a> {
 
     pub fn invoke_native_method(
         &mut self,
+        call_stack: &mut CallStack<'a>,
         class_ref: ClassRef<'a>,
         method_ref: MethodRef<'a>,
         object: Option<ObjectReference<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
-        //TODO
-        Ok(None)
+        let depth = "\t".repeat(call_stack.depth() - 1);
+        println!(
+            "{}=> invoke_native_method {}:{}{}",
+            depth, class_ref.name, method_ref.name, method_ref.descriptor
+        );
+        if let Some(native_method) = self.native_method_area.get_method(
+            &class_ref.name,
+            &method_ref.name,
+            &method_ref.descriptor,
+        ) {
+            native_method(self, call_stack, object, args)
+        } else {
+            Ok(None)
+        }
     }
+
     pub fn invoke_method(
         &mut self,
         call_stack: &mut CallStack<'a>,
@@ -242,9 +273,8 @@ impl<'a> VirtualMachine<'a> {
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         if method_ref.is_native() {
-            return self.invoke_native_method(class_ref, method_ref, object, args);
+            return self.invoke_native_method(call_stack, class_ref, method_ref, object, args);
         }
-
         let mut frame = call_stack.new_frame(class_ref, method_ref, object, args)?;
         let result = frame.as_mut().execute(self, call_stack)?;
         call_stack.pop_frame();
@@ -274,9 +304,16 @@ mod tests {
         let rt_jar_path = JarFileClassPath::new("./resources/rt.jar").unwrap();
         let call_stack = vm.allocate_call_stack();
         vm.add_class_path(Box::new(rt_jar_path));
-        let class_ref = vm.lookup_class(call_stack, "FieldTest").unwrap();
+        let class_ref = vm
+            .lookup_class_and_initialize(call_stack, "FieldTest")
+            .unwrap();
         assert!(matches!(class_ref.status, ClassStatus::Initialized));
         let an_int = vm.get_static(class_ref, "anInt");
-        assert!(matches!(an_int, Some(Value::Int(2))))
+        assert!(matches!(an_int, Some(Value::Int(2))));
+        let main_method = class_ref
+            .get_method("main", "([Ljava/lang/String;)V")
+            .unwrap();
+        vm.invoke_method(call_stack, class_ref, main_method, None, Vec::new())
+            .unwrap();
     }
 }

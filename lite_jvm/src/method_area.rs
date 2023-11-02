@@ -45,6 +45,10 @@ impl<'a> MethodArea<'a> {
             classes: Arena::new(),
         }
     }
+
+    pub fn is_class_loaded(&self, class_name: &str) -> bool {
+        self.bootstrap_class_loader.borrow().exist(class_name)
+    }
     pub fn load_class(&self, class_name: &str) -> VmExecResult<ClassRef<'a>> {
         let load_class_result = self
             .bootstrap_class_loader
@@ -106,6 +110,7 @@ impl<'a> MethodArea<'a> {
             methods.insert(MethodKey::by_method(&method), method);
         }
         let class_ref = self.classes.alloc(Class {
+            version: class_file.version,
             total_num_of_fields: super_num_of_fields + fields.len(),
             status: ClassStatus::Loaded,
             name: class_file.this_class_name,
@@ -159,7 +164,6 @@ mod tests {
 
         area.add_class_path(Box::new(rt_jar_path));
         let result = area.load_class("FieldTest").unwrap();
-        let s = format!("{result}");
 
         assert!(matches!(result.status, ClassStatus::Loaded));
         assert_eq!(2, area.num_of_classes());
@@ -171,6 +175,9 @@ mod tests {
         assert_eq!(main_method.name, "main");
 
         let option = area.get_mut(result);
-        assert!(option.is_some())
+        assert!(option.is_some());
+
+        let system_class = area.load_class("java/lang/System").unwrap();
+        println!("{}", system_class)
     }
 }

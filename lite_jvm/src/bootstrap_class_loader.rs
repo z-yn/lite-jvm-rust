@@ -46,7 +46,9 @@ impl<'a> BootstrapClassLoader<'a> {
             loaded_class: HashMap::new(),
         }
     }
-
+    pub fn exist(&self, class_name: &str) -> bool {
+        self.loaded_class.get(class_name).is_some()
+    }
     pub fn find_loaded_class(&mut self, class_name: &str) -> Option<&mut ClassRef<'a>> {
         self.loaded_class.get_mut(class_name)
     }

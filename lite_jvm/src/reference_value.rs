@@ -26,12 +26,8 @@ pub enum PrimaryType {
 pub enum Value<'a> {
     #[default]
     Uninitialized,
-    Boolean(bool),
-    Byte(i8),
-    Short(i16),
     Int(i32),
     Long(i64),
-    Char(u16),
     Float(f32),
     Double(f64),
     ReturnAddress(u32),
@@ -265,25 +261,17 @@ impl<'a> ArrayReference<'a> {
         self.get_array_type().is_subclass_of(target_type)
     }
 
-    read_value_at!(read_byte, Byte, i8);
     read_value_at!(read_int, Int, i32);
-    read_value_at!(read_char, Char, u16);
     read_value_at!(read_long, Long, i64);
-    read_value_at!(read_short, Short, i16);
     read_value_at!(read_float, Float, f32);
     read_value_at!(read_double, Double, f64);
-    read_value_at!(read_boolean, Boolean, bool);
     read_nullable_value_at!(read_object, ObjectRef, ObjectReference<'a>);
     read_nullable_value_at!(read_array, ArrayRef, ArrayReference<'a>);
 
-    write_value_at!(write_byte, Byte, i8);
     write_value_at!(write_int, Int, i32);
-    write_value_at!(write_char, Char, u16);
     write_value_at!(write_long, Long, i64);
-    write_value_at!(write_short, Short, i16);
     write_value_at!(write_float, Float, f32);
     write_value_at!(write_double, Double, f64);
-    write_value_at!(write_boolean, Boolean, bool);
     write_nullable_value_at!(write_object, ObjectRef, ObjectReference<'a>);
     write_nullable_value_at!(write_array, ArrayRef, ArrayReference<'a>);
 
@@ -336,14 +324,14 @@ impl<'a> ReferenceValue<'a> for ArrayReference<'a> {
         unsafe {
             match element {
                 ArrayElement::PrimaryValue(v) => match v {
-                    PrimaryType::Byte => self.write_byte(offset, value),
-                    PrimaryType::Char => self.write_char(offset, value),
+                    PrimaryType::Byte
+                    | PrimaryType::Short
+                    | PrimaryType::Boolean
+                    | PrimaryType::Char
+                    | PrimaryType::Int => self.write_int(offset, value),
                     PrimaryType::Double => self.write_double(offset, value),
                     PrimaryType::Float => self.write_float(offset, value),
-                    PrimaryType::Int => self.write_int(offset, value),
                     PrimaryType::Long => self.write_long(offset, value),
-                    PrimaryType::Short => self.write_short(offset, value),
-                    PrimaryType::Boolean => self.write_boolean(offset, value),
                 },
                 ArrayElement::ClassReference(_) => self.write_object(offset, value),
                 ArrayElement::Array(_) => self.write_array(offset, value),
@@ -359,14 +347,14 @@ impl<'a> ReferenceValue<'a> for ArrayReference<'a> {
         unsafe {
             match element_type {
                 ArrayElement::PrimaryValue(v) => match v {
-                    PrimaryType::Byte => self.read_byte(offset),
-                    PrimaryType::Char => self.read_char(offset),
                     PrimaryType::Double => self.read_double(offset),
                     PrimaryType::Float => self.read_float(offset),
-                    PrimaryType::Int => self.read_int(offset),
                     PrimaryType::Long => self.read_long(offset),
-                    PrimaryType::Short => self.read_short(offset),
-                    PrimaryType::Boolean => self.read_boolean(offset),
+                    PrimaryType::Int
+                    | PrimaryType::Byte
+                    | PrimaryType::Char
+                    | PrimaryType::Short
+                    | PrimaryType::Boolean => self.read_int(offset),
                 },
                 ArrayElement::ClassReference(_) => self.read_object(offset),
                 ArrayElement::Array(_) => self.read_array(offset),
@@ -403,14 +391,10 @@ impl<'a> ObjectReference<'a> {
         }
     }
 
-    write_value_at!(write_byte, Byte, i8);
     write_value_at!(write_int, Int, i32);
-    write_value_at!(write_char, Char, u16);
     write_value_at!(write_long, Long, i64);
-    write_value_at!(write_short, Short, i16);
     write_value_at!(write_float, Float, f32);
     write_value_at!(write_double, Double, f64);
-    write_value_at!(write_boolean, Boolean, bool);
     write_value_at!(write_object, ObjectRef, ObjectReference);
     write_value_at!(write_array, ArrayRef, ArrayReference);
 
@@ -422,14 +406,14 @@ impl<'a> ObjectReference<'a> {
     ) -> VmExecResult<()> {
         let offset = field.offset - 1;
         match field.descriptor.as_str() {
-            "B" => self.write_byte(offset, value),
-            "C" => self.write_char(offset, value),
+            "B" => self.write_int(offset, value),
+            "C" => self.write_int(offset, value),
             "D" => self.write_double(offset, value),
             "F" => self.write_float(offset, value),
             "I" => self.write_int(offset, value),
             "J" => self.write_long(offset, value),
-            "S" => self.write_short(offset, value),
-            "Z" => self.write_boolean(offset, value),
+            "S" => self.write_int(offset, value),
+            "Z" => self.write_int(offset, value),
             other => {
                 if other.starts_with("[") {
                     self.write_array(offset, value)
@@ -445,14 +429,14 @@ impl<'a> ObjectReference<'a> {
         let offset = field.offset - 1;
         assert!(offset > 0);
         match field.descriptor.as_str() {
-            "B" => self.read_byte(offset),
-            "C" => self.read_char(offset),
+            "B" => self.read_int(offset),
+            "C" => self.read_int(offset),
             "D" => self.read_double(offset),
             "F" => self.read_float(offset),
             "I" => self.read_int(offset),
             "J" => self.read_long(offset),
-            "S" => self.read_short(offset),
-            "Z" => self.read_boolean(offset),
+            "S" => self.read_int(offset),
+            "Z" => self.read_int(offset),
             other => {
                 if other.starts_with("[") {
                     self.read_array(offset)
@@ -463,14 +447,10 @@ impl<'a> ObjectReference<'a> {
         }
     }
 
-    read_value_at!(read_byte, Byte, i8);
     read_value_at!(read_int, Int, i32);
-    read_value_at!(read_char, Char, u16);
     read_value_at!(read_long, Long, i64);
-    read_value_at!(read_short, Short, i16);
     read_value_at!(read_float, Float, f32);
     read_value_at!(read_double, Double, f64);
-    read_value_at!(read_boolean, Boolean, bool);
     read_value_at!(read_object, ObjectRef, ObjectReference);
     read_value_at!(read_array, ArrayRef, ArrayReference);
 

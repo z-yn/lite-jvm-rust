@@ -1,7 +1,7 @@
 use crate::jvm_error::VmExecResult;
 use crate::runtime_attribute_info::{get_attr_as_constant_value, ConstantValueAttribute};
 use crate::runtime_constant_pool::RuntimeConstantPool;
-use class_file_reader::attribute_info::AttributeType;
+use class_file_reader::attribute_info::{AttributeInfo, AttributeType};
 use class_file_reader::field_info::{FieldAccessFlags, FieldInfo};
 
 pub struct RuntimeFieldInfo {
@@ -11,6 +11,7 @@ pub struct RuntimeFieldInfo {
     pub constant_value: Option<ConstantValueAttribute>,
     //内存中的索引值，从1开始。0表示未设置索引,即静态方法位置
     pub offset: usize,
+    pub attributes: Vec<AttributeInfo>,
 }
 
 impl RuntimeFieldInfo {
@@ -30,6 +31,7 @@ impl RuntimeFieldInfo {
             descriptor: field_info.descriptor,
             constant_value,
             offset: 0,
+            attributes: field_info.attributes,
         })
     }
 }

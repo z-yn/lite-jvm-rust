@@ -3,6 +3,7 @@ use crate::runtime_constant_pool::RuntimeConstantPool;
 use crate::runtime_field_info::RuntimeFieldInfo;
 use crate::runtime_method_info::{MethodKey, RuntimeMethodInfo};
 use class_file_reader::class_file::ClassAccessFlags;
+use class_file_reader::class_file_version::ClassFileVersion;
 use indexmap::IndexMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -16,6 +17,7 @@ pub enum ClassStatus {
 /// 表示加载的类，加载后该类会经过->链接->初始化过程最终加载完成。
 ///
 pub struct Class<'a> {
+    pub version: ClassFileVersion,
     pub status: ClassStatus,
     pub name: String,
     //常量池解析
@@ -60,8 +62,19 @@ impl<'a> Class<'a> {
         return Ok(method_ref);
     }
 
+    pub fn is_interface(&self) -> bool {
+        self.access_flags.contains(ClassAccessFlags::INTERFACE)
+    }
+
+    pub fn is_abstract(&self) -> bool {
+        self.access_flags.contains(ClassAccessFlags::ABSTRACT)
+    }
+
     pub(crate) fn is_subclass_of(&self, class_name: &str) -> bool {
         if self.name == class_name {
+            return true;
+        }
+        if let Some(_) = self.interfaces.get(class_name) {
             return true;
         }
         if let Some(super_class) = self.super_class {

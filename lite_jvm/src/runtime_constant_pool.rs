@@ -1,5 +1,4 @@
 use crate::jvm_error::{VmError, VmExecResult};
-use crate::reference_value::Value;
 use class_file_reader::constant_pool::{
     ConstantPool, ConstantPoolEntry, ConstantPoolPhysicalEntry,
 };

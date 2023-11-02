@@ -31,7 +31,9 @@ impl<'a> CallStack<'a> {
             arena: Arena::new(),
         }
     }
-
+    pub(crate) fn depth(&self) -> usize {
+        self.frames.len()
+    }
     pub(crate) fn new_frame(
         &mut self,
         class_ref: ClassRef<'a>,

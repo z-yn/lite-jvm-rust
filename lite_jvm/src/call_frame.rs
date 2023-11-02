@@ -5,8 +5,7 @@ use crate::jvm_error::VmError::ValueTypeMissMatch;
 use crate::jvm_error::{VmError, VmExecResult};
 use crate::loaded_class::{ClassRef, MethodRef};
 use crate::reference_value::Value::{
-    ArrayRef, Boolean, Byte, Char, Double, Float, Int, Long, Null, ObjectRef, ReturnAddress, Short,
-    Uninitialized,
+    ArrayRef, Double, Float, Int, Long, Null, ObjectRef, ReturnAddress, Uninitialized,
 };
 use crate::reference_value::{
     ArrayElement, ArrayReference, ObjectReference, PrimaryType, ReferenceValue, Value,
@@ -24,13 +23,17 @@ pub(crate) enum InstructionResult<'a> {
     ContinueMethodExecution,
 }
 
+pub enum LocalValue<'a> {
+    Entry(Value<'a>),
+    PlaceHolder,
+}
+
 pub struct CallFrame<'a> {
     pub(crate) class_ref: ClassRef<'a>,
     pub(crate) method_ref: MethodRef<'a>,
     //复用bytebuffer。包含了pc和code
     pub(crate) byte_buffer: ByteBuffer<'a>,
-    // pc: ProgramCounter,
-    pub(crate) local_variables: Vec<Value<'a>>,
+    pub(crate) local_var_table: Vec<LocalValue<'a>>,
     pub(crate) stack: ValueStack<'a>,
 }
 
@@ -46,7 +49,7 @@ fn is_double_division_returning_nan(a: f64, b: f64) -> bool {
 macro_rules! generate_get_local {
     ($name:ident, $variant:ident, $type:ty) => {
         fn $name(&mut self, index: u8) -> InvokeResult<'a, $type> {
-            let value = self.get_local_value(index)?;
+            let value = self.get_local(index as usize)?;
             match value {
                 Value::$variant(value) => Ok(value),
                 _ => Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch)),
@@ -62,6 +65,20 @@ macro_rules! generate_pop {
             match value {
                 Value::$variant(value) => Ok(value),
                 _ => Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch)),
+            }
+        }
+    };
+}
+macro_rules! generate_int_array_load {
+    ($name:ident,$type:ty) => {
+        fn $name(&mut self) -> InvokeResult<'a, ()> {
+            let index = self.pop_int()? as usize;
+            let array = self.pop_array()?;
+            let value = array.get_field_by_offset(index)?;
+            if let Int(v) = array.get_field_by_offset(index)? {
+                self.push(Int((v as $type) as i32))
+            } else {
+                Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch))
             }
         }
     };
@@ -114,7 +131,7 @@ macro_rules! generate_return {
 macro_rules! generate_load {
      ($name:ident, $($variant:ident),+) => {
         fn $name(&mut self, index: u8) -> InvokeResult<'a,()> {
-            let local = self.local_variables.get(index as usize).ok_or(MethodCallError::InternalError(VmError::ValueTypeMissMatch))?;
+            let local = self.get_local(index as usize)?;
             match local {
                 $($variant(..) => {
                     self.push(local.clone())
@@ -131,7 +148,7 @@ macro_rules! generate_store {
             let value = self.pop()?;
             match value {
                 $variant(..) => {
-                    self.local_variables[index as usize] = value;
+                    self.set_local(index as usize, value)?;
                     Ok(())
                 }
                 _ => Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch)),
@@ -146,6 +163,21 @@ macro_rules! generate_convert {
             let value = self.pop()?;
             if let $variant(v) = value {
                 self.push($target(v as $type))
+            } else {
+                Err(MethodCallError::InternalError(VmError::ExecuteCodeError(
+                    "convert Error".to_string(),
+                )))
+            }
+        }
+    };
+}
+
+macro_rules! generate_int_convert {
+    ($name:ident, $type:ty) => {
+        fn $name(&mut self) -> InvokeResult<'a, ()> {
+            let value = self.pop()?;
+            if let Int(v) = value {
+                self.push(Int((v as $type) as i32))
             } else {
                 Err(MethodCallError::InternalError(VmError::ExecuteCodeError(
                     "convert Error".to_string(),
@@ -232,19 +264,51 @@ impl<'a> CallFrame<'a> {
     pub fn new(
         class_ref: ClassRef<'a>,
         method_ref: MethodRef<'a>,
-        mut local_variables: Vec<Value<'a>>,
+        local_variables: Vec<Value<'a>>,
     ) -> CallFrame<'a> {
         let code_attr = method_ref.code.as_ref().expect("Should Has Code");
-        let n = code_attr.max_locals as usize;
-        (0..n).for_each(|_| local_variables.push(Uninitialized));
-        CallFrame {
+
+        let mut frame = CallFrame {
             class_ref,
             method_ref,
             byte_buffer: ByteBuffer::new(&code_attr.code),
             // pc: ProgramCounter(0),
-            local_variables,
+            local_var_table: Vec::new(),
             stack: ValueStack::new(code_attr.max_stack as usize),
+        };
+        for value in local_variables {
+            frame.push_local(value);
         }
+        let n = code_attr.max_locals as usize - frame.local_var_table.len();
+        (0..n).for_each(|_| frame.push_local(Uninitialized));
+        frame
+    }
+
+    fn get_local(&self, offset: usize) -> VmExecResult<Value<'a>> {
+        if offset >= self.local_var_table.len() {
+            return Err(VmError::IndexOutOfBounds);
+        }
+        match &self.local_var_table[offset] {
+            LocalValue::Entry(e) => Ok(e.clone()),
+            LocalValue::PlaceHolder => Err(VmError::InvalidOffset(offset)),
+        }
+    }
+
+    fn push_local(&mut self, value: Value<'a>) {
+        if let Long(_) | Double(_) = &value {
+            self.local_var_table.push(LocalValue::Entry(value));
+            self.local_var_table.push(LocalValue::PlaceHolder);
+        } else {
+            self.local_var_table.push(LocalValue::Entry(value));
+        }
+    }
+
+    fn set_local(&mut self, offset: usize, value: Value<'a>) -> VmExecResult<()> {
+        if offset >= self.local_var_table.len() {
+            return Err(VmError::IndexOutOfBounds);
+        }
+        self.local_var_table[offset] = LocalValue::Entry(value);
+        Ok(())
     }
 
     generate_pop!(pop_int, Int, i32);
@@ -254,28 +318,25 @@ impl<'a> CallFrame<'a> {
     generate_get_local!(get_local_int, Int, i32);
 
     generate_array_load!(exec_aaload, ObjectRef);
-    generate_array_load!(exec_caload, Char);
-    generate_array_load!(exec_saload, Short);
+    generate_int_array_load!(exec_caload, i16);
+    generate_int_array_load!(exec_saload, i16);
     generate_array_load!(exec_iaload, Int);
     generate_array_load!(exec_laload, Long);
     generate_array_load!(exec_faload, Float);
     generate_array_load!(exec_daload, Double);
-    generate_array_load!(exec_baload, Boolean, Byte);
+    generate_int_array_load!(exec_baload, i8);
 
     generate_array_store!(exec_aastore, ObjectRef);
-    generate_array_store!(exec_castore, Char);
-    generate_array_store!(exec_sastore, Short);
+    generate_array_store!(exec_castore, Int);
+    generate_array_store!(exec_sastore, Int);
     generate_array_store!(exec_iastore, Int);
     generate_array_store!(exec_lastore, Long);
     generate_array_store!(exec_fastore, Float);
     generate_array_store!(exec_dastore, Double);
-    generate_array_store!(exec_bastore, Boolean, Byte);
+    generate_array_store!(exec_bastore, Int);
 
     fn exec_aload(&mut self, index: u8) -> InvokeResult<'a, ()> {
-        let local = self
-            .local_variables
-            .get(index as usize)
-            .ok_or(MethodCallError::InternalError(ValueTypeMissMatch))?;
+        let local = self.get_local(index as usize)?;
         match local {
             ObjectRef(_) | Null => self.push(local.clone()),
             _ => Err(MethodCallError::InternalError(ValueTypeMissMatch)),
@@ -289,9 +350,8 @@ impl<'a> CallFrame<'a> {
 
     fn exec_astore(&mut self, index: u8) -> InvokeResult<'a, ()> {
         let object_ref = self.pop_object_or_null()?;
-        self.local_variables
-            .insert(index as usize, object_ref.clone());
-        Ok(())
+        self.set_local(index as usize, object_ref.clone())
+            .map_err(MethodCallError::from)
     }
 
     generate_store!(exec_dstore, Double);
@@ -306,12 +366,12 @@ impl<'a> CallFrame<'a> {
     generate_convert!(exec_f2i, Float, Int, i32);
     generate_convert!(exec_f2l, Float, Long, i64);
 
-    generate_convert!(exec_i2b, Int, Byte, i8);
-    generate_convert!(exec_i2c, Int, Char, u16);
+    generate_int_convert!(exec_i2b, i8);
+    generate_int_convert!(exec_i2c, u16);
     generate_convert!(exec_i2d, Int, Double, f64);
     generate_convert!(exec_i2f, Int, Float, f32);
     generate_convert!(exec_i2l, Int, Long, i64);
-    generate_convert!(exec_i2s, Int, Short, i16);
+    generate_int_convert!(exec_i2s, i16);
 
     generate_convert!(exec_l2d, Long, Double, f64);
     generate_convert!(exec_l2f, Long, Float, f32);
@@ -342,23 +402,6 @@ impl<'a> CallFrame<'a> {
         let val1 = self.pop_long()?;
         let result = evaluator(val1, val2)?;
         self.push(Long(result))
-    }
-
-    fn get_local_value(&self, index: u8) -> InvokeResult<'a, Value<'a>> {
-        let index = index as usize;
-        if index >= self.local_variables.len() {
-            return Err(MethodCallError::InternalError(VmError::IndexOutOfBounds));
-        }
-        Ok(self.local_variables.get(index).unwrap().clone())
-    }
-
-    fn set_local_value(&mut self, index: u8, value: Value<'a>) -> InvokeResult<'a, ()> {
-        let index = index as usize;
-        if index >= self.local_variables.len() {
-            return Err(MethodCallError::InternalError(VmError::IndexOutOfBounds));
-        }
-        self.local_variables.insert(index, value);
-        Ok(())
     }
 
     fn pop_array(&mut self) -> InvokeResult<'a, ArrayReference<'a>> {
@@ -425,16 +468,14 @@ impl<'a> CallFrame<'a> {
         let value_1 = self.stack.pop()?;
         match value_1 {
             Long(_) | Double(_) => Ok(()),
-            Boolean(_) | Byte(_) | Int(_) | Short(_) | Float(_) | ReturnAddress(_) => {
-                if let Boolean(_) | Byte(_) | Int(_) | Short(_) | Float(_) | ReturnAddress(_) =
-                    self.pop()?
-                {
+            Int(_) | Float(_) | ReturnAddress(_) => {
+                if let Int(_) | Float(_) | ReturnAddress(_) = self.pop()? {
                     Ok(())
                 } else {
-                    Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch))
+                    Err(MethodCallError::InternalError(ValueTypeMissMatch))
                 }
             }
-            _ => Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch)),
+            _ => Err(MethodCallError::InternalError(ValueTypeMissMatch)),
         }
     }
 
@@ -459,9 +500,7 @@ impl<'a> CallFrame<'a> {
     fn exec_areturn(&mut self) -> InvokeResult<'a, InstructionResult<'a>> {
         let value = self.pop()?;
         match value {
-            ObjectRef(_) | ArrayRef(_) | Null => {
-                Ok(InstructionResult::ReturnFromMethod(Some(value)))
-            }
+            ObjectRef(_) | ArrayRef(_) | Null => Ok(ReturnFromMethod(Some(value))),
             _ => Err(MethodCallError::from(VmError::ExecuteCodeError(
                 "Should be a reference or null".to_string(),
             ))),
@@ -476,7 +515,7 @@ impl<'a> CallFrame<'a> {
     ) -> InvokeResult<'a, ()> {
         let length = self.pop_int()? as usize;
         let class_name = self.get_class_name_in_constant_pool(constant_index)?;
-        let class = vm.lookup_class(call_stack, class_name)?;
+        let class = vm.lookup_class_and_initialize(call_stack, class_name)?;
         let array = vm.new_array(ArrayElement::ClassReference(class), length);
         self.push(ArrayRef(array))
     }
@@ -484,7 +523,7 @@ impl<'a> CallFrame<'a> {
     fn exec_arraylength(&mut self) -> InvokeResult<'a, ()> {
         let array = self.pop_array()?;
         let length = array.get_data_length();
-        self.push(Value::Int(length as i32))
+        self.push(Int(length as i32))
     }
 
     fn exec_athrow(&mut self) -> InvokeResult<'a, InstructionResult<'a>> {
@@ -508,13 +547,19 @@ impl<'a> CallFrame<'a> {
                 (
                     true,
                     None,
-                    Some(ArrayElement::ClassReference(vm.lookup_class(
-                        call_stack,
-                        &class_name[2..class_name.len() - 1],
-                    )?)),
+                    Some(ArrayElement::ClassReference(
+                        vm.lookup_class_and_initialize(
+                            call_stack,
+                            &class_name[2..class_name.len() - 1],
+                        )?,
+                    )),
                 )
             } else {
-                (false, Some(vm.lookup_class(call_stack, class_name)?), None)
+                (
+                    false,
+                    Some(vm.lookup_class_and_initialize(call_stack, class_name)?),
+                    None,
+                )
             };
         let result = match value {
             Null => false,
@@ -543,7 +588,8 @@ impl<'a> CallFrame<'a> {
         call_stack: &mut CallStack<'a>,
         instruction: Instruction,
     ) -> InvokeResult<'a, InstructionResult<'a>> {
-        println!("exec {:?}", instruction);
+        let depth = "\t".repeat(call_stack.depth());
+        println!("{}exec {:?}", depth, instruction);
         match instruction {
             Instruction::Aaload => self.exec_aaload()?,
             Instruction::Aastore => self.exec_aastore()?,
@@ -678,7 +724,7 @@ impl<'a> CallFrame<'a> {
             Instruction::Fsub => self.exec_float_math(|v1, v2| Ok(v1 - v2))?,
             Instruction::Getfield(const_pool_index) => self.exec_get_field(const_pool_index)?,
             Instruction::Getstatic(const_pool_index) => {
-                self.exec_get_static(vm, const_pool_index)?
+                self.exec_get_static(vm, call_stack, const_pool_index)?
             }
             Instruction::Goto(code_position) => self.goto(code_position as usize),
             Instruction::Goto_w(code_position) => self.goto(code_position as usize),
@@ -733,7 +779,7 @@ impl<'a> CallFrame<'a> {
             }
             Instruction::Iinc(index, to_add) => {
                 let local = self.get_local_int(index)?;
-                self.set_local_value(index, Int(local + to_add as i32))?;
+                self.set_local(index as usize, Int(local + to_add as i32))?;
             }
             Instruction::Iload(n) => self.exec_iload(n)?,
             Instruction::Iload_0 => self.exec_iload(0)?,
@@ -765,7 +811,7 @@ impl<'a> CallFrame<'a> {
             }
             Instruction::Invokestatic(offset) => self.exec_invoke_static(vm, call_stack, offset)?,
             Instruction::Invokevirtual(offset) => {
-                todo!()
+                self.exec_invoke_virtual(vm, call_stack, offset)?
             }
             Instruction::Ior => self.exec_int_math(|i1, i2| Ok(i1.bitor(i2)))?,
             Instruction::Irem => self.exec_int_math(|i1, i2| match i2 {
@@ -867,10 +913,10 @@ impl<'a> CallFrame<'a> {
                 self.exec_put_field(constant_pool_index)?
             }
             Instruction::Putstatic(constant_pool_index) => {
-                self.exec_put_static(vm, constant_pool_index)?
+                self.exec_put_static(vm, call_stack, constant_pool_index)?
             }
             Instruction::Ret(local_var_index) => {
-                if let ReturnAddress(address) = self.get_local_value(local_var_index)? {
+                if let ReturnAddress(address) = self.get_local(local_var_index as usize)? {
                     self.goto(address as usize);
                 } else {
                     return Err(MethodCallError::InternalError(ValueTypeMissMatch));
@@ -879,7 +925,7 @@ impl<'a> CallFrame<'a> {
             Instruction::Return => return Ok(ReturnFromMethod(None)),
             Instruction::Saload => self.exec_saload()?,
             Instruction::Sastore => self.exec_sastore()?,
-            Instruction::Sipush(value) => self.push(Short(value))?,
+            Instruction::Sipush(value) => self.push(Int(value as i32))?,
             Instruction::Swap => self.stack.swap()?,
             Instruction::Tableswitch => {}
             Instruction::Wide => {}
@@ -894,7 +940,7 @@ impl<'a> CallFrame<'a> {
         pool_index: u16,
     ) -> InvokeResult<'a, ()> {
         let class_name = self.get_class_name_in_constant_pool(pool_index)?;
-        let class_ref = vm.lookup_class(call_stack, class_name)?;
+        let class_ref = vm.lookup_class_and_initialize(call_stack, class_name)?;
         let object_reference = vm.new_object(class_ref);
         self.push(ObjectRef(object_reference))
     }
@@ -954,7 +1000,7 @@ impl<'a> CallFrame<'a> {
         match value {
             RuntimeConstantPoolEntry::Long(i) => self.push(Long(*i)),
             RuntimeConstantPoolEntry::Double(f) => self.push(Double(*f)),
-            _ => Err(MethodCallError::InternalError(VmError::ValueTypeMissMatch)),
+            _ => Err(MethodCallError::InternalError(ValueTypeMissMatch)),
         }
     }
 
@@ -995,9 +1041,11 @@ impl<'a> CallFrame<'a> {
                 self.get_field_in_constant_pool(field_index)?;
             let class_ref = object_ref.get_class();
             //TODO 校验描述符类型
-            assert_eq!(class_ref.name, class_name);
+            assert!(class_ref.is_subclass_of(class_name));
             //TODO 校验值类型
-            object_ref.set_field_by_name(field_name, &value)?
+            return object_ref
+                .set_field_by_name(field_name, &value)
+                .map_err(MethodCallError::from);
         }
         Err(MethodCallError::InternalError(ValueTypeMissMatch))
     }
@@ -1005,21 +1053,85 @@ impl<'a> CallFrame<'a> {
     fn exec_get_static(
         &mut self,
         vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
         field_index: u16,
     ) -> InvokeResult<'a, ()> {
         let (class_name, field_name, _descriptor) = self.get_field_in_constant_pool(field_index)?;
-        let value = vm.get_static_field_by_class_name(class_name, field_name)?;
-        self.push(value.unwrap().clone())
+        let value = vm.get_static_field_by_class_name(call_stack, class_name, field_name)?;
+        if value.is_some() {
+            self.push(value.unwrap().clone())
+        } else {
+            vm.lookup_class_and_initialize(call_stack, class_name)?;
+            self.push(
+                vm.get_static_field_by_class_name(call_stack, class_name, field_name)?
+                    .unwrap()
+                    .clone(),
+            )
+        }
     }
 
     fn exec_put_static(
         &mut self,
         vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
         field_index: u16,
     ) -> InvokeResult<'a, ()> {
         let static_value = self.pop()?;
         let (class_name, field_name, _descriptor) = self.get_field_in_constant_pool(field_index)?;
-        vm.set_static_field_by_class_name(class_name, field_name, static_value)
+        vm.set_static_field_by_class_name(call_stack, class_name, field_name, static_value)
+    }
+
+    fn exec_invoke_interface(
+        &mut self,
+        vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
+        offset: u16,
+        arg_count: u8,
+    ) -> InvokeResult<'a, ()> {
+        if let RuntimeConstantPoolEntry::InterfaceMethodReference(
+            class_name,
+            method_name,
+            descriptor,
+        ) = self.get_constant_pool(offset)?
+        {
+            let interface_ref = vm.lookup_class_and_initialize(call_stack, class_name)?;
+            assert!(interface_ref.is_interface());
+            self.invoke_virtual_on_receiver(vm, call_stack, interface_ref, method_name, descriptor)
+        } else {
+            Err(MethodCallError::InternalError(ValueTypeMissMatch))
+        }
+    }
+
+    fn invoke_virtual_on_receiver(
+        &mut self,
+        vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
+        class_or_interface_ref: ClassRef<'a>,
+        method_name: &str,
+        descriptor: &str,
+    ) -> InvokeResult<'a, ()> {
+        let mut method_ref = class_or_interface_ref.get_method(method_name, descriptor)?;
+        assert!(!method_ref.is_init_method() && !method_ref.is_class_init_method());
+        let method_args = &method_ref.descriptor_args_ret.args;
+        //TODO validate method_args and poped args type
+        let args = self.stack.pop_n(method_args.len())?;
+        let pop_value = self.pop()?;
+        match pop_value {
+            ObjectRef(object_ref) => {
+                //多态方法，方法要从当前对象去查方法实例
+                assert!(object_ref.is_instance_of(class_or_interface_ref));
+                let class_ref = object_ref.get_class();
+                method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
+                vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?;
+                Ok(())
+            }
+            Null => {
+                let null_pointer_exception =
+                    vm.new_object_by_class_name(call_stack, "java/lang/NullPointerException")?;
+                Err(MethodCallError::ExceptionThrown(null_pointer_exception))
+            }
+            _ => return Err(MethodCallError::InternalError(ValueTypeMissMatch)),
+        }
     }
 
     fn exec_invoke_special(
@@ -1031,7 +1143,7 @@ impl<'a> CallFrame<'a> {
         if let RuntimeConstantPoolEntry::MethodReference(class_name, method_name, descriptor) =
             self.get_constant_pool(offset)?
         {
-            let class_ref = vm.lookup_class(call_stack, class_name)?;
+            let class_ref = vm.lookup_class_and_initialize(call_stack, class_name)?;
             let method_ref = class_ref.get_method(method_name, descriptor)?;
             let method_args = &method_ref.descriptor_args_ret.args;
             //TODO validate method_args and poped args type
@@ -1059,18 +1171,9 @@ impl<'a> CallFrame<'a> {
             descriptor,
         ) = self.get_constant_pool(offset)?
         {
-            let mut class_ref = vm.lookup_class(call_stack, class_name)?;
-            let mut method_ref = class_ref.get_method(method_name, descriptor)?;
-            let method_args = &method_ref.descriptor_args_ret.args;
-            //TODO validate method_args and poped args type
-            let args = self.stack.pop_n(method_args.len())?;
-            let object_ref = self.pop_object()?;
-            //多态方法，方法要从当前对象去查方法实例
-            assert!(object_ref.is_instance_of(class_ref));
-            class_ref = object_ref.get_class();
-            method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
-            vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?;
-            Ok(())
+            let class_ref = vm.lookup_class_and_initialize(call_stack, class_name)?;
+            assert!(!class_ref.is_interface());
+            self.invoke_virtual_on_receiver(vm, call_stack, class_ref, method_name, descriptor)
         } else {
             Err(MethodCallError::InternalError(ValueTypeMissMatch))
         }
@@ -1090,7 +1193,7 @@ impl<'a> CallFrame<'a> {
         ) = self.get_constant_pool(offset)?
         {
             let class_ref = if &self.class_ref.name != class_name {
-                vm.lookup_class(call_stack, class_name)?
+                vm.lookup_class_and_initialize(call_stack, class_name)?
             } else {
                 self.class_ref
             };
@@ -1111,12 +1214,16 @@ impl<'a> CallFrame<'a> {
         vm: &mut VirtualMachine<'a>,
         call_stack: &mut CallStack<'a>,
     ) -> InvokeMethodResult<'a> {
+        let depth = "\t".repeat(call_stack.depth() - 1);
+
         println!(
-            "invoke method=> {}:{}->{}",
-            self.class_ref.name, self.method_ref.name, self.method_ref.descriptor
+            "{}=> invoke_method {}:{}{}",
+            depth, self.class_ref.name, self.method_ref.name, self.method_ref.descriptor
         );
+
         loop {
-            let instruction = read_one_instruction(&mut self.byte_buffer).unwrap();
+            let instruction = read_one_instruction(&mut self.byte_buffer)
+                .map_err(|_| MethodCallError::InternalError(VmError::ClassFormatError))?;
             let result = self.execute_instruction(vm, call_stack, instruction);
             match result {
                 Ok(ReturnFromMethod(return_value)) => {

@@ -12,7 +12,7 @@ pub struct MethodDescriptor {
 }
 
 impl MethodDescriptor {
-    fn construct_primary_type(mut array_count: &mut usize, value_type: PrimaryType) -> ValueType {
+    fn construct_primary_type(array_count: &mut usize, value_type: PrimaryType) -> ValueType {
         if *array_count > 0 {
             let primary_array = ValueType::PrimaryArray(value_type, *array_count);
             *array_count = 0;
@@ -112,11 +112,19 @@ pub struct RuntimeMethodInfo {
 // AnnotationDefault	method_info	49.0
 // MethodParameters	method_info	52.0
 impl RuntimeMethodInfo {
-    pub(crate) fn is_native(&self) -> bool {
+    pub fn is_native(&self) -> bool {
         self.access_flags.contains(MethodAccessFlags::NATIVE)
     }
-    pub(crate) fn is_static(&self) -> bool {
+    pub fn is_static(&self) -> bool {
         self.access_flags.contains(MethodAccessFlags::STATIC)
+    }
+
+    pub fn is_class_init_method(&self) -> bool {
+        self.access_flags.contains(MethodAccessFlags::STATIC) && self.name.as_str() == "<clinit>"
+    }
+
+    pub fn is_init_method(&self) -> bool {
+        self.access_flags.contains(MethodAccessFlags::STATIC) && self.name.as_str() == "<init>"
     }
     pub fn from(
         method_info: MethodInfo,

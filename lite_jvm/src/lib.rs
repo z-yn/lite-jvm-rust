@@ -7,6 +7,7 @@ pub mod jvm_error;
 pub mod loaded_class;
 pub(crate) mod memory_trunk;
 pub mod method_area;
+pub mod native_method_area;
 pub mod object_heap;
 pub mod program_counter;
 pub mod reference_value;

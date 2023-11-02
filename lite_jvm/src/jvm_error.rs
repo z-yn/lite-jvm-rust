@@ -2,6 +2,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum VmError {
+    #[error("ClassNotFoundException")]
+    ClassFormatError,
     #[error("ClassNotFoundException {0}")]
     ClassNotFoundException(String),
     #[error("MethodNotFoundException {0} {1}")]
@@ -10,6 +12,8 @@ pub enum VmError {
     FieldNotFoundException(String),
     #[error("InvalidAttribute {0}")]
     InvalidAttribute(String),
+    #[error("InvalidAttribute {0}")]
+    InvalidOffset(usize),
     #[error("NoClassDefFoundError {0}")]
     NoClassDefFoundError(String),
     #[error("ClassPathNotExist {0}")]
@@ -24,7 +28,8 @@ pub enum VmError {
     ValueTypeMissMatch,
     #[error("ReadJarFileError {0}")]
     ReadJarFileError(String),
-
+    #[error("VersionNotSupport")]
+    ClassVersionNotSupport,
     #[error("index out of bounds")]
     IndexOutOfBounds,
     #[error("can't pop from empty stack")]
