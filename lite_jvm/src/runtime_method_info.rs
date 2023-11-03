@@ -22,7 +22,7 @@ impl MethodDescriptor {
         }
     }
 
-    fn construct_object_type(mut array_count: &mut usize, value_type: Vec<char>) -> ValueType {
+    fn construct_object_type(array_count: &mut usize, value_type: Vec<char>) -> ValueType {
         let class_name = value_type.iter().collect();
         if *array_count > 0 {
             let primary_array = ValueType::ObjectArray(class_name, *array_count);

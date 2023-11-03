@@ -415,7 +415,7 @@ impl<'a> ObjectReference<'a> {
             "S" => self.write_int(offset, value),
             "Z" => self.write_int(offset, value),
             other => {
-                if other.starts_with("[") {
+                if other.starts_with('[') {
                     self.write_array(offset, value)
                 } else {
                     self.write_object(offset, value)
@@ -426,8 +426,8 @@ impl<'a> ObjectReference<'a> {
 
     //TODO 校验Value与RuntimeFieldInfo是否一致
     unsafe fn read_value_at_offset(&self, field: FieldRef) -> VmExecResult<Value<'a>> {
+        assert!(field.offset > 0);
         let offset = field.offset - 1;
-        assert!(offset > 0);
         match field.descriptor.as_str() {
             "B" => self.read_int(offset),
             "C" => self.read_int(offset),

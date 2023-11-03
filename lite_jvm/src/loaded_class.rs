@@ -85,11 +85,7 @@ impl<'a> Class<'a> {
         false
     }
 
-    pub(crate) fn get_method(
-        &self,
-        method_name: &str,
-        descriptor: &str,
-    ) -> VmExecResult<MethodRef<'a>> {
+    pub fn get_method(&self, method_name: &str, descriptor: &str) -> VmExecResult<MethodRef<'a>> {
         if let Some(method) = self.methods.get(&MethodKey::new(method_name, descriptor)) {
             //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
             let method_ref = unsafe {

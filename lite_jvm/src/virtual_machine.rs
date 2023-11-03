@@ -1,7 +1,7 @@
 use crate::call_stack::CallStack;
 use crate::class_finder::ClassPath;
 use crate::java_exception::{InvokeMethodResult, MethodCallError};
-use crate::jvm_error::VmExecResult;
+use crate::jvm_error::VmError;
 use crate::loaded_class::{Class, ClassRef, ClassStatus, MethodRef};
 use crate::method_area::MethodArea;
 use crate::native_method_area::NativeMethodArea;
@@ -73,7 +73,7 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut CallStack<'a>,
         class_name: &str,
     ) -> Result<ObjectReference<'a>, MethodCallError<'a>> {
-        let class_ref = self.lookup_class_and_initialize(call_stack, class_name)?;
+        let class_ref = self.get_class_by_name(call_stack, class_name)?;
         let class_object = self.new_object_by_class_name(call_stack, "java/lang/Class")?;
         let string_object = self.new_java_lang_string_object(call_stack, &class_ref.name)?;
         class_object.set_field_by_name("name", &Value::ObjectRef(string_object))?;
@@ -253,15 +253,9 @@ impl<'a> VirtualMachine<'a> {
             "{}=> invoke_native_method {}:{}{}",
             depth, class_ref.name, method_ref.name, method_ref.descriptor
         );
-        if let Some(native_method) = self.native_method_area.get_method(
-            &class_ref.name,
-            &method_ref.name,
-            &method_ref.descriptor,
-        ) {
-            native_method(self, call_stack, object, args)
-        } else {
-            Ok(None)
-        }
+        self.native_method_area
+            .get_method(&class_ref.name, &method_ref.name, &method_ref.descriptor)
+            .unwrap()(self, call_stack, object, args)
     }
 
     pub fn invoke_method(

@@ -23,6 +23,7 @@ pub(crate) enum InstructionResult<'a> {
     ContinueMethodExecution,
 }
 
+#[derive(Debug)]
 pub enum LocalValue<'a> {
     Entry(Value<'a>),
     PlaceHolder,
@@ -31,6 +32,7 @@ pub enum LocalValue<'a> {
 pub struct CallFrame<'a> {
     pub(crate) class_ref: ClassRef<'a>,
     pub(crate) method_ref: MethodRef<'a>,
+    pub(crate) pc: usize,
     //复用bytebuffer。包含了pc和code
     pub(crate) byte_buffer: ByteBuffer<'a>,
     pub(crate) local_var_table: Vec<LocalValue<'a>>,
@@ -74,7 +76,6 @@ macro_rules! generate_int_array_load {
         fn $name(&mut self) -> InvokeResult<'a, ()> {
             let index = self.pop_int()? as usize;
             let array = self.pop_array()?;
-            let value = array.get_field_by_offset(index)?;
             if let Int(v) = array.get_field_by_offset(index)? {
                 self.push(Int((v as $type) as i32))
             } else {
@@ -189,7 +190,7 @@ macro_rules! generate_int_convert {
 
 macro_rules! generate_if_cmp {
     ($name:ident,$variant:ident,$type:ty) => {
-        fn $name<T>(&mut self, branch: u16, evaluator: T) -> InvokeResult<'a, ()>
+        fn $name<T>(&mut self, branch: i16, evaluator: T) -> InvokeResult<'a, ()>
         where
             T: FnOnce($type, $type) -> bool,
         {
@@ -205,7 +206,7 @@ macro_rules! generate_if_cmp {
             };
             let result = evaluator(val1, val2);
             if result {
-                self.goto(branch as usize)
+                self.goto_offset(branch as i32)
             }
             Ok(())
         }
@@ -272,7 +273,7 @@ impl<'a> CallFrame<'a> {
             class_ref,
             method_ref,
             byte_buffer: ByteBuffer::new(&code_attr.code),
-            // pc: ProgramCounter(0),
+            pc: 0,
             local_var_table: Vec::new(),
             stack: ValueStack::new(code_attr.max_stack as usize),
         };
@@ -301,6 +302,7 @@ impl<'a> CallFrame<'a> {
         } else {
             self.local_var_table.push(LocalValue::Entry(value));
         }
+        // println!("--- local variables --- {:?}", self.local_var_table);
     }
 
     fn set_local(&mut self, offset: usize, value: Value<'a>) -> VmExecResult<()> {
@@ -338,7 +340,7 @@ impl<'a> CallFrame<'a> {
     fn exec_aload(&mut self, index: u8) -> InvokeResult<'a, ()> {
         let local = self.get_local(index as usize)?;
         match local {
-            ObjectRef(_) | Null => self.push(local.clone()),
+            ObjectRef(_) | ArrayRef(_) | Null => self.push(local.clone()),
             _ => Err(MethodCallError::InternalError(ValueTypeMissMatch)),
         }
     }
@@ -413,17 +415,6 @@ impl<'a> CallFrame<'a> {
             )))
         }
     }
-
-    fn pop_array_or_null(&mut self) -> InvokeResult<'a, Value<'a>> {
-        let value = self.pop()?;
-        if let ArrayRef(_) | Null = value {
-            Ok(value)
-        } else {
-            Err(MethodCallError::InternalError(VmError::ExecuteCodeError(
-                "ShouldBeArrayOrNull".to_string(),
-            )))
-        }
-    }
     fn pop_object_or_null(&mut self) -> InvokeResult<'a, Value<'a>> {
         let value = self.pop()?;
         if let ObjectRef(_) | Null = value {
@@ -446,9 +437,7 @@ impl<'a> CallFrame<'a> {
         }
     }
     fn pop_n(&mut self, n: usize) -> InvokeResult<'a, Vec<Value<'a>>> {
-        self.stack
-            .pop_n(n)
-            .map_err(|e| MethodCallError::InternalError(e))
+        self.stack.pop_n(n).map_err(MethodCallError::InternalError)
     }
     fn pop_object(&mut self) -> InvokeResult<'a, ObjectReference<'a>> {
         if let ObjectRef(v) = self.pop()? {
@@ -589,7 +578,7 @@ impl<'a> CallFrame<'a> {
         instruction: Instruction,
     ) -> InvokeResult<'a, InstructionResult<'a>> {
         let depth = "\t".repeat(call_stack.depth());
-        println!("{}exec {:?}", depth, instruction);
+        // println!("{}exec {:?}", depth, instruction);
         match instruction {
             Instruction::Aaload => self.exec_aaload()?,
             Instruction::Aastore => self.exec_aastore()?,
@@ -726,8 +715,8 @@ impl<'a> CallFrame<'a> {
             Instruction::Getstatic(const_pool_index) => {
                 self.exec_get_static(vm, call_stack, const_pool_index)?
             }
-            Instruction::Goto(code_position) => self.goto(code_position as usize),
-            Instruction::Goto_w(code_position) => self.goto(code_position as usize),
+            Instruction::Goto(code_position) => self.goto_offset(code_position as i32),
+            Instruction::Goto_w(code_position) => self.goto_offset(code_position),
             Instruction::I2b => self.exec_i2b()?,
             Instruction::I2c => self.exec_i2c()?,
             Instruction::I2d => self.exec_i2d()?,
@@ -768,13 +757,13 @@ impl<'a> CallFrame<'a> {
                 let v = self.pop_reference_or_null()?;
                 if let Null = v {
                 } else {
-                    self.goto(branch as usize);
+                    self.goto_offset(branch as i32);
                 }
             }
             Instruction::Ifnull(branch) => {
                 let v = self.pop_reference_or_null()?;
                 if let Null = v {
-                    self.goto(branch as usize);
+                    self.goto_offset(branch as i32);
                 }
             }
             Instruction::Iinc(index, to_add) => {
@@ -803,8 +792,8 @@ impl<'a> CallFrame<'a> {
             Instruction::Invokedynamic(_) => {
                 todo!()
             }
-            Instruction::Invokeinterface(_, _) => {
-                todo!()
+            Instruction::Invokeinterface(offset, arg_count) => {
+                self.exec_invoke_interface(vm, call_stack, offset, arg_count)?
             }
             Instruction::Invokespecial(offset) => {
                 self.exec_invoke_special(vm, call_stack, offset)?
@@ -1004,19 +993,24 @@ impl<'a> CallFrame<'a> {
         }
     }
 
-    fn exec_if<T>(&mut self, branch: u16, evaluator: T) -> InvokeResult<'a, ()>
+    fn exec_if<T>(&mut self, offset: i16, evaluator: T) -> InvokeResult<'a, ()>
     where
         T: FnOnce(i32) -> bool,
     {
         let value = self.pop_int()?;
         if evaluator(value) {
-            self.goto(branch as usize);
+            self.goto_offset(offset as i32);
         }
         Ok(())
     }
-
     fn goto(&mut self, new_pc: usize) {
+        self.pc = new_pc;
         self.byte_buffer.jump_to(new_pc);
+    }
+
+    fn goto_offset(&mut self, offset: i32) {
+        self.pc = (self.pc as i32 + offset) as usize;
+        self.byte_buffer.jump_to(self.pc);
     }
 
     fn exec_get_field(&mut self, field_index: u16) -> InvokeResult<'a, ()> {
@@ -1026,7 +1020,7 @@ impl<'a> CallFrame<'a> {
                 self.get_field_in_constant_pool(field_index)?;
             let class_ref = object_ref.get_class();
             //TODO 校验描述符类型
-            assert_eq!(class_ref.name, class_name);
+            assert!(class_ref.is_subclass_of(class_name));
             let field_value = object_ref.get_field_by_name(field_name)?;
             return self.push(field_value);
         }
@@ -1086,7 +1080,7 @@ impl<'a> CallFrame<'a> {
         vm: &mut VirtualMachine<'a>,
         call_stack: &mut CallStack<'a>,
         offset: u16,
-        arg_count: u8,
+        _arg_count: u8,
     ) -> InvokeResult<'a, ()> {
         if let RuntimeConstantPoolEntry::InterfaceMethodReference(
             class_name,
@@ -1122,7 +1116,11 @@ impl<'a> CallFrame<'a> {
                 assert!(object_ref.is_instance_of(class_or_interface_ref));
                 let class_ref = object_ref.get_class();
                 method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
-                vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?;
+                if let Some(v) =
+                    vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?
+                {
+                    self.push(v)?;
+                }
                 Ok(())
             }
             Null => {
@@ -1152,7 +1150,11 @@ impl<'a> CallFrame<'a> {
             //必须是子类调用父类的方法，自身的私有方法，以及实例初始化化方法
             assert!(object_ref.is_instance_of(class_ref));
 
-            vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?;
+            if let Some(v) =
+                vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?
+            {
+                self.push(v)?;
+            }
             Ok(())
         } else {
             Err(MethodCallError::InternalError(ValueTypeMissMatch))
@@ -1193,7 +1195,7 @@ impl<'a> CallFrame<'a> {
         ) = self.get_constant_pool(offset)?
         {
             let class_ref = if &self.class_ref.name != class_name {
-                vm.lookup_class_and_initialize(call_stack, class_name)?
+                vm.get_class_by_name(call_stack, class_name)?
             } else {
                 self.class_ref
             };
@@ -1202,7 +1204,9 @@ impl<'a> CallFrame<'a> {
             let method_args = &method_ref.descriptor_args_ret.args;
             //TODO validate method_args and poped args type
             let args = self.stack.pop_n(method_args.len())?;
-            vm.invoke_method(call_stack, class_ref, method_ref, None, args)?;
+            if let Some(v) = vm.invoke_method(call_stack, class_ref, method_ref, None, args)? {
+                self.push(v)?;
+            }
             Ok(())
         } else {
             Err(MethodCallError::InternalError(ValueTypeMissMatch))
@@ -1222,6 +1226,8 @@ impl<'a> CallFrame<'a> {
         );
 
         loop {
+            //记录当前指令的地址，用于实现偏移
+            self.pc = self.byte_buffer.position;
             let instruction = read_one_instruction(&mut self.byte_buffer)
                 .map_err(|_| MethodCallError::InternalError(VmError::ClassFormatError))?;
             let result = self.execute_instruction(vm, call_stack, instruction);

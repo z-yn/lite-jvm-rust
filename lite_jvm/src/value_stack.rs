@@ -20,12 +20,15 @@ impl<'a> ValueStack<'a> {
         Ok(vec)
     }
     pub(crate) fn pop(&mut self) -> VmExecResult<Value<'a>> {
-        self.stack.pop().ok_or(VmError::PopFromEmptyStack)
+        let result = self.stack.pop().ok_or(VmError::PopFromEmptyStack);
+        // println!("--- value stack --- {:?}", self.stack);
+        result
     }
 
     pub(crate) fn push(&mut self, value: Value<'a>) -> VmExecResult<()> {
         if self.stack.len() < self.stack.capacity() {
             self.stack.push(value);
+            // println!("--- value stack --- {:?}", self.stack);
             Ok(())
         } else {
             Err(VmError::StackOverFlow)

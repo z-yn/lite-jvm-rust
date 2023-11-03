@@ -1,9 +1,7 @@
 use crate::call_stack::CallStack;
 use crate::java_exception::{InvokeMethodResult, MethodCallError};
 use crate::jvm_error::VmError;
-use crate::loaded_class::{ClassRef, MethodRef};
 use crate::reference_value::{ObjectReference, Value};
-use crate::runtime_method_info::MethodDescriptor;
 use crate::virtual_machine::VirtualMachine;
 use class_file_reader::class_file_version::ClassFileVersion;
 use std::collections::HashMap;
@@ -30,7 +28,32 @@ impl<'a> NativeMethodArea<'a> {
             "()V",
             Self::java_lang_system_register_native,
         );
+        area.registry_native_method(
+            "java/lang/System",
+            "arraycopy",
+            "(Ljava/lang/Object;ILjava/lang/Object;II)V",
+            Self::java_lang_system_arraycopy,
+        );
+
+        area.registry_native_method("java/lang/Object", "registerNatives", "()V", Self::nop);
         area
+    }
+    pub fn nop(
+        _vm: &mut VirtualMachine<'a>,
+        _call_stack: &mut CallStack<'a>,
+        _receiver: Option<ObjectReference<'a>>,
+        _args: Vec<Value<'a>>,
+    ) -> InvokeMethodResult<'a> {
+        Ok(None)
+    }
+
+    pub fn java_lang_system_arraycopy(
+        vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
+        _receiver: Option<ObjectReference<'a>>,
+        _args: Vec<Value<'a>>,
+    ) -> InvokeMethodResult<'a> {
+        Ok(None)
     }
     pub fn java_lang_system_register_native(
         vm: &mut VirtualMachine<'a>,
@@ -60,22 +83,6 @@ impl<'a> NativeMethodArea<'a> {
     ) {
         let key = format!("{}:{}{}", class_name, method_name, method_descriptor);
         self.native_methods.insert(key, method);
-    }
-    pub fn invoke_native_method(
-        &mut self,
-        call_stack: &mut CallStack<'a>,
-        class_ref: ClassRef<'a>,
-        method_ref: MethodRef<'a>,
-        object: Option<ObjectReference<'a>>,
-        args: Vec<Value<'a>>,
-    ) -> InvokeMethodResult<'a> {
-        let depth = "\t".repeat(call_stack.depth() - 1);
-        println!(
-            "{}=> invoke_native_method {}:{}{}",
-            depth, class_ref.name, method_ref.name, method_ref.descriptor
-        );
-
-        Ok(None)
     }
     pub fn get_method(
         &mut self,

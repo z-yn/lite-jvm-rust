@@ -100,6 +100,15 @@ impl<'a> ByteBuffer<'a> {
         assert!(position <= self.buffer.len());
         self.position = position;
     }
+
+    pub fn jump_offset(&mut self, offset: i32) {
+        let jump_target = self.position as i32 + offset;
+        println!(
+            "jump start at {} ,offset {}, target:{}",
+            self.position, offset, jump_target
+        );
+        self.jump_to(jump_target as usize);
+    }
 }
 
 #[cfg(test)]
