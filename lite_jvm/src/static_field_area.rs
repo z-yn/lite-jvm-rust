@@ -41,7 +41,7 @@ impl<'a> StaticArea<'a> {
     ) {
         self.fields
             .entry(class_ref)
-            .or_insert(IndexMap::new())
+            .or_default()
             .insert(field_name.to_string(), value);
     }
 }

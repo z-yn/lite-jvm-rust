@@ -34,18 +34,12 @@ pub trait ClassLoader<'a> {
     fn registry_class(&mut self, class: ClassRef<'a>);
 }
 
+#[derive(Default)]
 pub struct BootstrapClassLoader<'a> {
     class_finder: ClassFinder,
     loaded_class: HashMap<String, ClassRef<'a>>,
 }
-
 impl<'a> BootstrapClassLoader<'a> {
-    pub fn new() -> BootstrapClassLoader<'a> {
-        BootstrapClassLoader {
-            class_finder: ClassFinder::default(),
-            loaded_class: HashMap::new(),
-        }
-    }
     pub fn exist(&self, class_name: &str) -> bool {
         self.loaded_class.get(class_name).is_some()
     }

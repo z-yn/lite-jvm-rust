@@ -22,14 +22,14 @@ pub(crate) fn get_attr_as_constant_value(
     let bytes = &value[..];
     let const_pool_index = u16::from_be_bytes(bytes.try_into().unwrap());
     match cp.get(const_pool_index)? {
-        RuntimeConstantPoolEntry::Integer(v) => Ok(ConstantValueAttribute::Int(v.clone())),
-        RuntimeConstantPoolEntry::Float(v) => Ok(ConstantValueAttribute::Float(v.clone())),
-        RuntimeConstantPoolEntry::Long(v) => Ok(ConstantValueAttribute::Long(v.clone())),
-        RuntimeConstantPoolEntry::Double(v) => Ok(ConstantValueAttribute::Double(v.clone())),
+        RuntimeConstantPoolEntry::Integer(v) => Ok(ConstantValueAttribute::Int(*v)),
+        RuntimeConstantPoolEntry::Float(v) => Ok(ConstantValueAttribute::Float(*v)),
+        RuntimeConstantPoolEntry::Long(v) => Ok(ConstantValueAttribute::Long(*v)),
+        RuntimeConstantPoolEntry::Double(v) => Ok(ConstantValueAttribute::Double(*v)),
         RuntimeConstantPoolEntry::StringReference(v) => {
             Ok(ConstantValueAttribute::String(v.clone()))
         }
-        _ => Err(VmError::InvalidAttribute("".to_string())).unwrap(),
+        _ => Err(VmError::InvalidAttribute("".to_string())),
     }
 }
 
@@ -67,7 +67,7 @@ impl Display for ConstantValueAttribute {
 /// }
 /// ```
 ///
-/// LineNumberTable	Code	45.3
+// LineNumberTable	Code	45.3
 // LocalVariableTable	Code	45.3
 // LocalVariableTypeTable	Code	49.0
 // StackMapTable	Code
@@ -114,7 +114,7 @@ pub struct LocalVariableTypeTable {
 pub struct StackMapTable {}
 
 fn read_code_bytes(
-    value: &Vec<u8>,
+    value: &[u8],
     cp: &RuntimeConstantPool,
 ) -> class_file_error::Result<CodeAttribute> {
     let mut buffer = ByteBuffer::new(value);
@@ -210,13 +210,13 @@ fn read_code_bytes(
     })
 }
 pub(crate) fn get_attr_as_code(
-    value: &Vec<u8>,
+    value: &[u8],
     cp: &RuntimeConstantPool,
 ) -> VmExecResult<CodeAttribute> {
     read_code_bytes(value, cp).map_err(|e| VmError::ReadClassBytesError(e.to_string()))
 }
 
-pub(crate) fn get_attr_as_exception(bytes: &Vec<u8>, cp: &RuntimeConstantPool) -> Vec<String> {
+pub(crate) fn get_attr_as_exception(bytes: &[u8], cp: &RuntimeConstantPool) -> Vec<String> {
     let mut buffer = ByteBuffer::new(bytes);
     let number_of_exceptions = buffer.read_u16().unwrap();
     (0..number_of_exceptions)

@@ -9,18 +9,10 @@ use std::path::PathBuf;
 use zip::result::ZipError;
 use zip::ZipArchive;
 
+#[derive(Default)]
 pub struct ClassFinder {
     pub class_paths: Vec<Box<dyn ClassPath>>,
 }
-
-impl Default for ClassFinder {
-    fn default() -> Self {
-        ClassFinder {
-            class_paths: Vec::new(),
-        }
-    }
-}
-
 impl ClassFinder {
     //查找class,如果查找失败则返回ClassNotFoundException
     pub fn find_class(&self, name: &str) -> VmExecResult<Vec<u8>> {
@@ -47,7 +39,7 @@ pub struct FileSystemClassPath {
 impl FileSystemClassPath {
     pub fn new(path: &str) -> VmExecResult<FileSystemClassPath> {
         let class_path_root = if let Ok(abs_path) = fs::canonicalize(PathBuf::from(path)) {
-            PathBuf::from(abs_path)
+            abs_path
         } else {
             return Err(VmError::ClassPathNotExist(path.to_string()));
         };
@@ -93,7 +85,7 @@ impl Debug for JarFileClassPath {
 impl JarFileClassPath {
     pub fn new(path: &str) -> VmExecResult<JarFileClassPath> {
         let jar_file_path = if let Ok(abs_path) = fs::canonicalize(PathBuf::from(path)) {
-            PathBuf::from(abs_path)
+            abs_path
         } else {
             return Err(VmError::JarFileNotExist(path.to_string()));
         };

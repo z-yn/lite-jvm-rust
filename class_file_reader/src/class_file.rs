@@ -98,13 +98,6 @@ impl Display for ClassFile {
         writeln!(f, "minor version: {}", version.0)?;
         writeln!(f, "major version: {}", version.1)?;
         write!(f, "flags: ({:#06x}) ", self.access_flags.bits())?;
-        for bitflags in self.access_flags.iter() {
-            match bitflags {
-                ClassAccessFlags::PUBLIC => write!(f, "ACC_PUBLIC")?,
-                ClassAccessFlags::SUPER => write!(f, "ACC_SUPER")?,
-                _ => {}
-            }
-        }
         writeln!(f, "this_class: {}", self.this_class_name)?;
         if let Some(super_class) = &self.super_class_name {
             writeln!(f, "super_class: {}", super_class)?;

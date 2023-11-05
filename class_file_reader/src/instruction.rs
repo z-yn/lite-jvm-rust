@@ -345,9 +345,9 @@ pub fn read_one_instruction(buffer: &mut ByteBuffer) -> Result<Instruction> {
         0xba => {
             let invokedynamic = Instruction::Invokedynamic(buffer.read_u16()?);
             if buffer.read_u16()? != 0 {
-                return Err(ClassFileError::InvalidClassData(format!(
-                    "expected two zero bytes after invokedynamic"
-                )));
+                return Err(ClassFileError::InvalidClassData(
+                    "expected two zero bytes after invokedynamic".to_string(),
+                ));
             }
             invokedynamic
         }
@@ -355,9 +355,9 @@ pub fn read_one_instruction(buffer: &mut ByteBuffer) -> Result<Instruction> {
             let invokeinterface =
                 Instruction::Invokeinterface(buffer.read_u16()?, buffer.read_u8()?);
             if buffer.read_u8()? != 0 {
-                return Err(ClassFileError::InvalidClassData(format!(
-                    "expected one zero bytes after invokeinterface"
-                )));
+                return Err(ClassFileError::InvalidClassData(
+                    "expected one zero bytes after invokeinterface".to_string(),
+                ));
             }
             invokeinterface
         }

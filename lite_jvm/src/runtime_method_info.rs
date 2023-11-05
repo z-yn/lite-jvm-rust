@@ -33,7 +33,7 @@ impl MethodDescriptor {
         }
     }
     fn new(descriptor: &str) -> VmExecResult<MethodDescriptor> {
-        assert!(descriptor.starts_with("("));
+        assert!(descriptor.starts_with('('));
         let mut args = Vec::new();
         let mut reader = Vec::new();
         let mut array_count: usize = 0;
@@ -106,7 +106,7 @@ pub struct RuntimeMethodInfo {
     pub exception: Vec<String>,
 }
 
-///Code	method_info	45.3
+//Code	method_info	45.3
 // Exceptions	method_info	45.3
 // RuntimeVisibleParameterAnnotations, RuntimeInvisibleParameterAnnotations	method_info	49.0
 // AnnotationDefault	method_info	49.0

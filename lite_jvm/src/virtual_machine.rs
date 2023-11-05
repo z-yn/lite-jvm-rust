@@ -108,8 +108,8 @@ impl<'a> VirtualMachine<'a> {
     ) -> Result<(), MethodCallError<'a>> {
         for (field_name, field) in &class_ref.fields {
             if field.is_static() {
-                if let Some(v) = &field.constant_value {
-                    let value = match v {
+                let value = if let Some(v) = &field.constant_value {
+                    match v {
                         ConstantValueAttribute::Int(i) => Value::Int(*i),
                         ConstantValueAttribute::Float(f) => Value::Float(*f),
                         ConstantValueAttribute::Long(l) => Value::Long(*l),
@@ -117,10 +117,19 @@ impl<'a> VirtualMachine<'a> {
                         ConstantValueAttribute::String(str) => Value::ObjectRef(
                             self.new_java_lang_string_object(call_stack, str).unwrap(),
                         ),
-                    };
-                    self.static_area
-                        .set_static_field(class_ref, field_name, value)
-                }
+                    }
+                } else {
+                    match field.descriptor.as_str() {
+                        "B" | "C" | "I" | "S" | "Z" => Value::Int(0),
+                        "F" => Value::Float(0f32),
+                        "D" => Value::Double(0f64),
+                        "J" => Value::Long(0),
+                        _ => Value::Null,
+                    }
+                };
+
+                self.static_area
+                    .set_static_field(class_ref, field_name, value)
             };
             //TODO 动态初始化实现
         }
@@ -132,9 +141,11 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut VirtualMachineStack<'a>,
         class_ref: ClassRef<'a>,
     ) -> Result<(), MethodCallError<'a>> {
-        self.set_class_stage(class_ref, ClassStatus::Linking);
-        self.init_static_fields(call_stack, class_ref)?;
-        self.set_class_stage(class_ref, ClassStatus::Linked);
+        if class_ref.status == ClassStatus::Loaded {
+            self.set_class_stage(class_ref, ClassStatus::Linking);
+            self.init_static_fields(call_stack, class_ref)?;
+            self.set_class_stage(class_ref, ClassStatus::Linked);
+        }
         Ok(())
     }
     fn set_class_stage(&mut self, class_ref: ClassRef<'a>, class_status: ClassStatus) {
@@ -301,7 +312,7 @@ mod tests {
         let class_ref = vm
             .lookup_class_and_initialize(call_stack, "FieldTest")
             .unwrap();
-        assert!(matches!(class_ref.status, ClassStatus::Initialized));
+        assert_eq!(class_ref.status, ClassStatus::Initialized);
         let an_int = vm.get_static(class_ref, "anInt");
         assert!(matches!(an_int, Some(Value::Int(2))));
         let main_method = class_ref

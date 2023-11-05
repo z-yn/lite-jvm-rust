@@ -1059,8 +1059,8 @@ impl<'a> VirtualMachineStackFrame<'a> {
     ) -> InvokeResult<'a, ()> {
         let (class_name, field_name, _descriptor) = self.get_field_in_constant_pool(field_index)?;
         let value = vm.get_static_field_by_class_name(call_stack, class_name, field_name)?;
-        if value.is_some() {
-            self.push(value.unwrap().clone())
+        if let Some(value) = value {
+            self.push(value.clone())
         } else {
             vm.lookup_class_and_initialize(call_stack, class_name)?;
             self.push(

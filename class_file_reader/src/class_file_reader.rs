@@ -61,10 +61,10 @@ pub fn read_buffer(buf: &[u8]) -> Result<ClassFile> {
 fn check_magic_number(buffer: &mut ByteBuffer) -> Result<()> {
     match buffer.read_u32() {
         Ok(0xCAFEBABE) => Ok(()),
-        Ok(n) => Err(ClassFileError::InvalidClassData(String::from(format!(
+        Ok(n) => Err(ClassFileError::InvalidClassData(format!(
             "invalid magic number: {n}"
-        )))),
-        Err(err) => Err(err.into()),
+        ))),
+        Err(err) => Err(err),
     }
 }
 fn read_version(buffer: &mut ByteBuffer) -> Result<ClassFileVersion> {

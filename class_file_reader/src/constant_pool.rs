@@ -77,7 +77,6 @@ impl ConstantPoolEntry {
         buffer
             .read_utf8(result as usize)
             .map(ConstantPoolEntry::Utf8)
-            .map_err(|err| err.into())
     }
 }
 
@@ -96,6 +95,9 @@ pub struct ConstantPool {
 }
 
 impl ConstantPool {
+    pub fn is_empty(&self) -> bool {
+        self.entries.len() == 0
+    }
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -249,9 +251,7 @@ impl Display for ConstantPool {
         writeln!(f, "Constant pool: (size: {})", self.entries.len())?;
         for (raw_idx, _) in self.entries.iter().enumerate() {
             let index = (raw_idx + 1) as u16;
-            let entry_text = self
-                .fmt_entry(&index)
-                .map_err(|_| std::fmt::Error::default())?;
+            let entry_text = self.fmt_entry(&index).map_err(|_| std::fmt::Error)?;
             writeln!(f, "    {}, {}", index, entry_text)?;
         }
         Ok(())

@@ -35,6 +35,26 @@ pub enum Value<'a> {
     ArrayRef(ArrayReference<'a>),
     Null,
 }
+macro_rules! generate_get_value {
+    ($name:ident, $variant:ident, $type:ty) => {
+        pub fn $name(&mut self) -> VmExecResult<$type> {
+            if let Value::$variant(v) = self {
+                Ok(*v)
+            } else {
+                Err(VmError::ValueTypeMissMatch)
+            }
+        }
+    };
+}
+
+impl<'a> Value<'a> {
+    generate_get_value!(get_int, Int, i32);
+    generate_get_value!(get_long, Long, i64);
+    generate_get_value!(get_float, Float, f32);
+    generate_get_value!(get_double, Double, f64);
+    generate_get_value!(get_object, ObjectRef, ObjectReference<'a>);
+    generate_get_value!(get_array, ArrayRef, ArrayReference<'a>);
+}
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValueType {
     Primary(PrimaryType),
@@ -438,7 +458,7 @@ impl<'a> ObjectReference<'a> {
             "S" => self.read_int(offset),
             "Z" => self.read_int(offset),
             other => {
-                if other.starts_with("[") {
+                if other.starts_with('[') {
                     self.read_array(offset)
                 } else {
                     self.read_object(offset)

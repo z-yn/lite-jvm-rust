@@ -350,7 +350,7 @@ impl RuntimeConstantPool {
         for entry in &cp.entries {
             let runtime_entry = match entry {
                 ConstantPoolPhysicalEntry::Entry(e) => {
-                    RuntimeConstantPoolPhysicalEntry::Entry(RuntimeConstantPoolEntry::from(&cp, e)?)
+                    RuntimeConstantPoolPhysicalEntry::Entry(RuntimeConstantPoolEntry::from(cp, e)?)
                 }
                 ConstantPoolPhysicalEntry::PlaceHolder => {
                     RuntimeConstantPoolPhysicalEntry::PlaceHolder

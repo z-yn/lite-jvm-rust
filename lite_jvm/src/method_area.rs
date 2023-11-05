@@ -21,7 +21,7 @@ pub struct MethodArea<'a> {
 impl<'a> Default for MethodArea<'a> {
     fn default() -> Self {
         MethodArea {
-            bootstrap_class_loader: RefCell::new(BootstrapClassLoader::new()),
+            bootstrap_class_loader: RefCell::new(BootstrapClassLoader::default()),
             custom_class_loader: HashMap::new(),
             classes: Arena::new(),
         }
@@ -71,7 +71,7 @@ impl<'a> MethodArea<'a> {
         let mut super_num_of_fields: usize = 0;
         //解析super_class
         let super_class = if let Some(super_class_name) = &class_file.super_class_name {
-            let result = self.load_class(&super_class_name)?;
+            let result = self.load_class(super_class_name)?;
             super_num_of_fields = result.total_num_of_fields;
             Some(result)
         } else {

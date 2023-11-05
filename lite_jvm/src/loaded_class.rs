@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum ClassStatus {
     Loading,
     Loaded,
@@ -63,7 +63,7 @@ impl<'a> Class<'a> {
             let const_ptr: *const RuntimeFieldInfo = method;
             &*const_ptr
         };
-        return Ok(method_ref);
+        Ok(method_ref)
     }
 
     pub fn is_interface(&self) -> bool {
@@ -78,7 +78,7 @@ impl<'a> Class<'a> {
         if self.name == class_name {
             return true;
         }
-        if let Some(_) = self.interfaces.get(class_name) {
+        if self.interfaces.get(class_name).is_some() {
             return true;
         }
         if let Some(super_class) = self.super_class {
@@ -96,7 +96,7 @@ impl<'a> Class<'a> {
                 let const_ptr: *const RuntimeMethodInfo = method;
                 &*const_ptr
             };
-            return Ok(method_ref);
+            Ok(method_ref)
         } else {
             Err(VmError::MethodNotFoundException(
                 method_name.to_string(),

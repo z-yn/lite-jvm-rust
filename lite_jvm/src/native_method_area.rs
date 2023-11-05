@@ -1,6 +1,6 @@
 use crate::java_exception::{InvokeMethodResult, MethodCallError};
 use crate::jvm_error::VmError;
-use crate::jvm_values::{ObjectReference, Value};
+use crate::jvm_values::{ObjectReference, ReferenceValue, Value};
 use crate::virtual_machine::VirtualMachine;
 use crate::virtual_machine_stack::VirtualMachineStack;
 use class_file_reader::class_file_version::ClassFileVersion;
@@ -49,11 +49,22 @@ impl<'a> NativeMethodArea<'a> {
     }
 
     pub fn java_lang_system_arraycopy(
-        vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        _vm: &mut VirtualMachine<'a>,
+        _call_stack: &mut VirtualMachineStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
-        _args: Vec<Value<'a>>,
+        mut args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
+        assert_eq!(args.len(), 5);
+        let from_array = args[0].get_array()?;
+        let from_start = args[1].get_int()?;
+
+        let to_array = args[2].get_array()?;
+        let to_start = args[3].get_int()?;
+        let length = args[4].get_int()?;
+        for offset in 0..length {
+            let value = from_array.get_field_by_offset((offset + from_start) as usize)?;
+            to_array.set_field_by_offset((offset + to_start) as usize, &value)?;
+        }
         Ok(None)
     }
     pub fn java_lang_system_register_native(

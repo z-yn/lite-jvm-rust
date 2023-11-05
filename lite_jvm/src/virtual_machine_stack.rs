@@ -47,7 +47,7 @@ impl<'a> VirtualMachineStack<'a> {
         let locals: Vec<Value<'a>> = object
             .map(Value::ObjectRef)
             .into_iter()
-            .chain(args.into_iter())
+            .chain(args)
             .collect();
         let new_frame = self
             .arena
@@ -58,7 +58,7 @@ impl<'a> VirtualMachineStack<'a> {
     }
 
     pub(crate) fn pop_frame(&mut self) {
-        if self.frames.len() > 0 {
+        if !self.frames.is_empty() {
             self.frames.pop().unwrap();
         }
     }
