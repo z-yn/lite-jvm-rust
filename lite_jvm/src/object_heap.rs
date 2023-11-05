@@ -1,8 +1,8 @@
-use crate::loaded_class::ClassRef;
-use crate::memory_trunk::MemoryChunk;
-use crate::reference_value::{
+use crate::jvm_values::{
     size_of_array, size_of_object, ArrayElement, ArrayReference, ObjectReference,
 };
+use crate::loaded_class::ClassRef;
+use crate::memory_trunk::MemoryChunk;
 use std::marker::PhantomData;
 
 pub struct ObjectHeap<'a> {
@@ -41,11 +41,11 @@ mod tests {
     #[test]
     fn test_allocate_object() {
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
+        use crate::jvm_values::ReferenceValue;
+        use crate::jvm_values::Value;
         use crate::method_area::MethodArea;
         use crate::object_heap::ObjectHeap;
-        use crate::reference_value::ReferenceValue;
-        use crate::reference_value::Value;
-        let area = MethodArea::new();
+        let area = MethodArea::default();
 
         let file_system_path = FileSystemClassPath::new("./resources").unwrap();
         area.add_class_path(Box::new(file_system_path));

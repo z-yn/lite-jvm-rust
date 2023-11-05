@@ -26,9 +26,10 @@ impl MethodHandlerKind {
             3 => Ok(MethodHandlerKind::PutField),
             4 => Ok(MethodHandlerKind::PutStatic),
             5 => Ok(MethodHandlerKind::InvokeVirtual),
-            6 => Ok(MethodHandlerKind::InvokeSpecial),
-            7 => Ok(MethodHandlerKind::NewInvokeSpecial),
-            8 => Ok(MethodHandlerKind::InvokeInterface),
+            6 => Ok(MethodHandlerKind::InvokeStatic),
+            7 => Ok(MethodHandlerKind::InvokeSpecial),
+            8 => Ok(MethodHandlerKind::NewInvokeSpecial),
+            9 => Ok(MethodHandlerKind::InvokeInterface),
             _ => Err(VmError::ReadClassBytesError(format!(
                 "invalid method handler kind {kind}"
             ))),

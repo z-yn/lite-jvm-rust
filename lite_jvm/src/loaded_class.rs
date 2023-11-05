@@ -8,9 +8,13 @@ use indexmap::IndexMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 
+#[derive(Debug)]
 pub enum ClassStatus {
+    Loading,
     Loaded,
+    Linking,
     Linked,
+    Initializing,
     Initialized,
 }
 

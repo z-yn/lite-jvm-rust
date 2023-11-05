@@ -1,32 +1,32 @@
-use crate::call_frame::CallFrame;
 use crate::jvm_error::{VmError, VmExecResult};
+use crate::jvm_values::{ObjectReference, Value};
 use crate::loaded_class::{ClassRef, MethodRef};
-use crate::reference_value::{ObjectReference, Value};
+use crate::virtual_machine_stack_frame::VirtualMachineStackFrame;
 use typed_arena::Arena;
 
 //需要包装一个裸指针，用来保持mutable的引用
 #[derive(Debug, Clone)]
-pub struct CallFrameRef<'a>(*mut CallFrame<'a>);
+pub struct CallFrameRef<'a>(*mut VirtualMachineStackFrame<'a>);
 
-impl<'a> AsRef<CallFrame<'a>> for CallFrameRef<'a> {
-    fn as_ref(&self) -> &CallFrame<'a> {
+impl<'a> AsRef<VirtualMachineStackFrame<'a>> for CallFrameRef<'a> {
+    fn as_ref(&self) -> &VirtualMachineStackFrame<'a> {
         unsafe { self.0.as_ref() }.unwrap()
     }
 }
 
-impl<'a> AsMut<CallFrame<'a>> for CallFrameRef<'a> {
-    fn as_mut(&mut self) -> &mut CallFrame<'a> {
+impl<'a> AsMut<VirtualMachineStackFrame<'a>> for CallFrameRef<'a> {
+    fn as_mut(&mut self) -> &mut VirtualMachineStackFrame<'a> {
         unsafe { self.0.as_mut() }.unwrap()
     }
 }
-pub struct CallStack<'a> {
+pub struct VirtualMachineStack<'a> {
     frames: Vec<CallFrameRef<'a>>,
-    arena: Arena<CallFrame<'a>>,
+    arena: Arena<VirtualMachineStackFrame<'a>>,
 }
 
-impl<'a> CallStack<'a> {
-    pub(crate) fn new() -> CallStack<'a> {
-        CallStack {
+impl<'a> VirtualMachineStack<'a> {
+    pub(crate) fn new() -> VirtualMachineStack<'a> {
+        VirtualMachineStack {
             frames: Vec::new(),
             arena: Arena::new(),
         }
@@ -51,7 +51,7 @@ impl<'a> CallStack<'a> {
             .collect();
         let new_frame = self
             .arena
-            .alloc(CallFrame::new(class_ref, method_ref, locals));
+            .alloc(VirtualMachineStackFrame::new(class_ref, method_ref, locals));
         let frame = CallFrameRef(new_frame);
         self.frames.push(frame.clone());
         Ok(frame)

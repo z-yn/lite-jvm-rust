@@ -1,14 +1,14 @@
-use crate::call_stack::CallStack;
 use crate::java_exception::{InvokeMethodResult, MethodCallError};
 use crate::jvm_error::VmError;
-use crate::reference_value::{ObjectReference, Value};
+use crate::jvm_values::{ObjectReference, Value};
 use crate::virtual_machine::VirtualMachine;
+use crate::virtual_machine_stack::VirtualMachineStack;
 use class_file_reader::class_file_version::ClassFileVersion;
 use std::collections::HashMap;
 
 pub type NativeMethod<'a> = fn(
     &mut VirtualMachine<'a>,
-    &mut CallStack<'a>,
+    &mut VirtualMachineStack<'a>,
     Option<ObjectReference<'a>>,
     Vec<Value<'a>>,
 ) -> InvokeMethodResult<'a>;
@@ -36,11 +36,12 @@ impl<'a> NativeMethodArea<'a> {
         );
 
         area.registry_native_method("java/lang/Object", "registerNatives", "()V", Self::nop);
+        area.registry_native_method("java/lang/Class", "registerNatives", "()V", Self::nop);
         area
     }
     pub fn nop(
         _vm: &mut VirtualMachine<'a>,
-        _call_stack: &mut CallStack<'a>,
+        _call_stack: &mut VirtualMachineStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
@@ -49,7 +50,7 @@ impl<'a> NativeMethodArea<'a> {
 
     pub fn java_lang_system_arraycopy(
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut CallStack<'a>,
+        call_stack: &mut VirtualMachineStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
@@ -57,7 +58,7 @@ impl<'a> NativeMethodArea<'a> {
     }
     pub fn java_lang_system_register_native(
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut CallStack<'a>,
+        call_stack: &mut VirtualMachineStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {

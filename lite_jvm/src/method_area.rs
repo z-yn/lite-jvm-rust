@@ -18,6 +18,15 @@ pub struct MethodArea<'a> {
     custom_class_loader: HashMap<&'a str, ClassRef<'a>>,
     classes: Arena<Class<'a>>,
 }
+impl<'a> Default for MethodArea<'a> {
+    fn default() -> Self {
+        MethodArea {
+            bootstrap_class_loader: RefCell::new(BootstrapClassLoader::new()),
+            custom_class_loader: HashMap::new(),
+            classes: Arena::new(),
+        }
+    }
+}
 impl<'a> MethodArea<'a> {
     pub fn num_of_classes(&self) -> usize {
         self.classes.len()
@@ -36,14 +45,6 @@ impl<'a> MethodArea<'a> {
             }
         }
         None
-    }
-
-    pub fn new() -> MethodArea<'a> {
-        MethodArea {
-            bootstrap_class_loader: RefCell::new(BootstrapClassLoader::new()),
-            custom_class_loader: HashMap::new(),
-            classes: Arena::new(),
-        }
     }
 
     pub fn is_class_loaded(&self, class_name: &str) -> bool {
@@ -156,7 +157,7 @@ mod tests {
         use crate::loaded_class::ClassStatus;
         use crate::method_area::MethodArea;
 
-        let mut area = MethodArea::new();
+        let mut area = MethodArea::default();
 
         let file_system_path = FileSystemClassPath::new("./resources").unwrap();
         area.add_class_path(Box::new(file_system_path));

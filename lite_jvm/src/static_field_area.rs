@@ -1,5 +1,5 @@
+use crate::jvm_values::{ObjectReference, Value};
 use crate::loaded_class::ClassRef;
-use crate::reference_value::{ObjectReference, Value};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 

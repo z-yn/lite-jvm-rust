@@ -42,7 +42,7 @@ pub struct BootstrapClassLoader<'a> {
 impl<'a> BootstrapClassLoader<'a> {
     pub fn new() -> BootstrapClassLoader<'a> {
         BootstrapClassLoader {
-            class_finder: ClassFinder::new(),
+            class_finder: ClassFinder::default(),
             loaded_class: HashMap::new(),
         }
     }

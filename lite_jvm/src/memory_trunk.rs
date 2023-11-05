@@ -1,6 +1,5 @@
 use std::alloc::Layout;
 
-/// Models an allocated chunk of memory
 pub(crate) struct MemoryChunk {
     memory: *mut u8,
     used: usize,

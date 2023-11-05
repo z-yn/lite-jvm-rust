@@ -13,12 +13,15 @@ pub struct ClassFinder {
     pub class_paths: Vec<Box<dyn ClassPath>>,
 }
 
-impl ClassFinder {
-    pub fn new() -> ClassFinder {
+impl Default for ClassFinder {
+    fn default() -> Self {
         ClassFinder {
             class_paths: Vec::new(),
         }
     }
+}
+
+impl ClassFinder {
     //查找class,如果查找失败则返回ClassNotFoundException
     pub fn find_class(&self, name: &str) -> VmExecResult<Vec<u8>> {
         for class_path in &self.class_paths {
@@ -103,8 +106,8 @@ impl JarFileClassPath {
             let file =
                 File::open(&jar_file_path).map_err(|e| VmError::ReadJarFileError(e.to_string()))?;
             let buf_reader = BufReader::new(file);
-            let zip =
-                ZipArchive::new(buf_reader).map_err(|e| VmError::ReadJarFileError(e.to_string()))?;
+            let zip = ZipArchive::new(buf_reader)
+                .map_err(|e| VmError::ReadJarFileError(e.to_string()))?;
             Ok(Self {
                 jar_file_path: jar_file_path.to_string_lossy().to_string(),
                 zip: RefCell::new(zip),

@@ -1,13 +1,13 @@
 use crate::jvm_error::{VmError, VmExecResult};
-use crate::reference_value::Value;
+use crate::jvm_values::Value;
 
 #[derive(Debug)]
-pub struct ValueStack<'a> {
+pub struct OperandStack<'a> {
     stack: Vec<Value<'a>>,
 }
-impl<'a> ValueStack<'a> {
-    pub(crate) fn new(max_size: usize) -> ValueStack<'a> {
-        ValueStack {
+impl<'a> OperandStack<'a> {
+    pub(crate) fn new(max_size: usize) -> OperandStack<'a> {
+        OperandStack {
             stack: Vec::with_capacity(max_size),
         }
     }

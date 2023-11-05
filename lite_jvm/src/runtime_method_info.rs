@@ -1,5 +1,5 @@
 use crate::jvm_error::{VmError, VmExecResult};
-use crate::reference_value::{PrimaryType, ValueType};
+use crate::jvm_values::{PrimaryType, ValueType};
 use crate::runtime_attribute_info::{get_attr_as_code, get_attr_as_exception, CodeAttribute};
 use crate::runtime_constant_pool::RuntimeConstantPool;
 use class_file_reader::attribute_info::AttributeType;

@@ -89,6 +89,12 @@ pub struct ExceptionTable {
     pub catch_type: Option<String>,
 }
 
+impl ExceptionTable {
+    pub fn catch_line(&self, line_number: u16) -> bool {
+        line_number >= self.start_pc && line_number < self.end_pc
+    }
+}
+
 pub struct LocalVariableTable {
     pub start_pc: u16,
     pub length: u16,
