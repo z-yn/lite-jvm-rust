@@ -1,5 +1,6 @@
 use crate::jvm_values::{ObjectReference, Value};
 use crate::loaded_class::ClassRef;
+use crate::object_heap::ObjectHeap;
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
@@ -7,23 +8,24 @@ use std::collections::HashMap;
 
 pub(crate) struct StaticArea<'a> {
     fields: HashMap<ClassRef<'a>, IndexMap<String, Value<'a>>>,
-    string_constant_pool: HashMap<&'a str, ObjectReference<'a>>,
+    static_object_heap: ObjectHeap<'a>,
+    pub(crate) string_constant_pool: HashMap<String, ObjectReference<'a>>,
+    pub(crate) class_constant_pool: HashMap<String, ObjectReference<'a>>,
 }
 impl<'a> StaticArea<'a> {
-    pub(crate) fn new() -> StaticArea<'a> {
+    pub(crate) fn new(static_heap_size: usize) -> StaticArea<'a> {
         StaticArea {
             fields: HashMap::new(),
+            static_object_heap: ObjectHeap::new(static_heap_size),
             string_constant_pool: Default::default(),
+            class_constant_pool: Default::default(),
         }
     }
 
-    pub(crate) fn get_string(&self, str: &str) -> Option<&ObjectReference<'a>> {
-        self.string_constant_pool.get(str)
+    pub fn new_object(&mut self, class_ref: ClassRef) -> ObjectReference<'a> {
+        self.static_object_heap.allocate_object(class_ref).unwrap()
     }
 
-    pub(crate) fn cache_string(&self, str: &str) -> Option<&ObjectReference<'a>> {
-        self.string_constant_pool.get(str)
-    }
     pub(crate) fn get_static_field(
         &self,
         class_ref: ClassRef<'a>,

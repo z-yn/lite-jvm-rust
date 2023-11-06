@@ -1,6 +1,6 @@
 use std::alloc::Layout;
 
-pub(crate) struct MemoryChunk {
+pub struct MemoryChunk {
     memory: *mut u8,
     used: usize,
     capacity: usize,
@@ -31,11 +31,11 @@ impl MemoryChunk {
         Some((ptr, required_size))
     }
 
-    unsafe fn contains(&self, ptr: *const u8) -> bool {
-        ptr >= self.memory && ptr <= self.memory.add(self.used)
-    }
+    // unsafe fn contains(&self, ptr: *const u8) -> bool {
+    //     ptr >= self.memory && ptr <= self.memory.add(self.used)
+    // }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.used = 0;
 
         // Zero the memory, to attempt and catch bugs

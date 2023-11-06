@@ -104,7 +104,7 @@ impl<'a> Class<'a> {
             ))
         }
     }
-    pub(crate) fn get_method_by_checking_super(
+    pub fn get_method_by_checking_super(
         &self,
         method_name: &str,
         descriptor: &str,

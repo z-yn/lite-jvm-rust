@@ -164,7 +164,7 @@ mod tests {
         let rt_jar_path = JarFileClassPath::new("./resources/rt.jar").unwrap();
 
         area.add_class_path(Box::new(rt_jar_path));
-        let result = area.load_class("FieldTest").unwrap();
+        let result = area.load_class("HelloWorld").unwrap();
 
         assert!(matches!(result.status, ClassStatus::Loaded));
         assert_eq!(2, area.num_of_classes());

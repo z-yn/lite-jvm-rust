@@ -29,14 +29,41 @@ impl<'a> NativeMethodArea<'a> {
             Self::java_lang_system_register_native,
         );
         area.registry_native_method(
+            "java/lang/Class",
+            "getPrimitiveClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+            Self::java_lang_class_get_primitive_class,
+        );
+
+        area.registry_native_method(
+            "java/lang/Class",
+            "desiredAssertionStatus0",
+            "(Ljava/lang/Class;)Z",
+            Self::java_lang_class_desired_assertion_status0,
+        );
+        area.registry_native_method(
+            "java/lang/Class",
+            "hashCode",
+            "()I",
+            Self::java_lang_class_hash_code,
+        );
+
+        area.registry_native_method("java/lang/Object", "registerNatives", "()V", Self::nop);
+        area.registry_native_method("java/lang/Class", "registerNatives", "()V", Self::nop);
+        area.registry_native_method("sun/misc/Unsafe", "registerNatives", "()V", Self::nop);
+        area.registry_native_method(
+            "sun/misc/Unsafe",
+            "arrayBaseOffset",
+            "(Ljava/lang/Class;)I",
+            Self::sun_misc_unsafe_array_base_offset,
+        );
+
+        area.registry_native_method(
             "java/lang/System",
             "arraycopy",
             "(Ljava/lang/Object;ILjava/lang/Object;II)V",
             Self::java_lang_system_arraycopy,
         );
-
-        area.registry_native_method("java/lang/Object", "registerNatives", "()V", Self::nop);
-        area.registry_native_method("java/lang/Class", "registerNatives", "()V", Self::nop);
         area
     }
     pub fn nop(
@@ -47,12 +74,40 @@ impl<'a> NativeMethodArea<'a> {
     ) -> InvokeMethodResult<'a> {
         Ok(None)
     }
+    pub fn sun_misc_unsafe_array_base_offset(
+        _vm: &mut VirtualMachine<'a>,
+        _call_stack: &mut VirtualMachineStack<'a>,
+        _receiver: Option<ObjectReference<'a>>,
+        _args: Vec<Value<'a>>,
+    ) -> InvokeMethodResult<'a> {
+        todo!("实现Unsafe相关的工作是非常繁琐的")
+    }
 
+    pub fn java_lang_class_hash_code(
+        _vm: &mut VirtualMachine<'a>,
+        _call_stack: &mut VirtualMachineStack<'a>,
+        _receiver: Option<ObjectReference<'a>>,
+        _args: Vec<Value<'a>>,
+    ) -> InvokeMethodResult<'a> {
+        if let Some(obj) = _receiver {
+            Ok(Some(Value::Int(obj.hash_code())))
+        } else {
+            Ok(Some(Value::Int(-1)))
+        }
+    }
+    pub fn java_lang_class_desired_assertion_status0(
+        _vm: &mut VirtualMachine<'a>,
+        _call_stack: &mut VirtualMachineStack<'a>,
+        _receiver: Option<ObjectReference<'a>>,
+        _args: Vec<Value<'a>>,
+    ) -> InvokeMethodResult<'a> {
+        Ok(Some(Value::Int(1)))
+    }
     pub fn java_lang_system_arraycopy(
         _vm: &mut VirtualMachine<'a>,
         _call_stack: &mut VirtualMachineStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
-        mut args: Vec<Value<'a>>,
+        args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         assert_eq!(args.len(), 5);
         let from_array = args[0].get_array()?;
@@ -66,6 +121,27 @@ impl<'a> NativeMethodArea<'a> {
             to_array.set_field_by_offset((offset + to_start) as usize, &value)?;
         }
         Ok(None)
+    }
+    pub fn java_lang_class_get_primitive_class(
+        vm: &mut VirtualMachine<'a>,
+        call_stack: &mut VirtualMachineStack<'a>,
+        _receiver: Option<ObjectReference<'a>>,
+        args: Vec<Value<'a>>,
+    ) -> InvokeMethodResult<'a> {
+        let class_name = &args[0].get_string()?;
+
+        let wrapped_class_name = match class_name.as_str() {
+            "long" => "java/lang/Long",
+            "boolean" => "java/lang/Boolean",
+            "int" => "java/lang/Integer",
+            "short" => "java/lang/Short",
+            "byte" => "java/lang/Byte",
+            "double" => "java/lang/Double",
+            "float" => "java/lang/Float",
+            _ => class_name,
+        };
+        let object_ref = vm.new_java_lang_class_object(call_stack, wrapped_class_name)?;
+        Ok(Some(Value::ObjectRef(object_ref)))
     }
     pub fn java_lang_system_register_native(
         vm: &mut VirtualMachine<'a>,

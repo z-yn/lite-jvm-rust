@@ -37,7 +37,7 @@ pub enum Value<'a> {
 }
 macro_rules! generate_get_value {
     ($name:ident, $variant:ident, $type:ty) => {
-        pub fn $name(&mut self) -> VmExecResult<$type> {
+        pub fn $name(&self) -> VmExecResult<$type> {
             if let Value::$variant(v) = self {
                 Ok(*v)
             } else {
@@ -54,6 +54,18 @@ impl<'a> Value<'a> {
     generate_get_value!(get_double, Double, f64);
     generate_get_value!(get_object, ObjectRef, ObjectReference<'a>);
     generate_get_value!(get_array, ArrayRef, ArrayReference<'a>);
+    pub fn get_string(&self) -> VmExecResult<String> {
+        let string_object = self.get_object()?;
+        assert_eq!(string_object.get_class().name, "java/lang/String");
+        let bytes: Vec<u16> = string_object
+            .get_field_by_name("value")?
+            .get_array()?
+            .read_all()
+            .iter()
+            .map(|v| v.get_int().unwrap() as u16)
+            .collect();
+        Ok(String::from_utf16_lossy(&bytes))
+    }
 }
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValueType {
@@ -273,6 +285,13 @@ impl<'a> ArrayReference<'a> {
         }
     }
 
+    fn read_all(&self) -> Vec<Value<'a>> {
+        let header = self.get_array_header();
+        (0..header.array_size)
+            .map(|i| self.get_field_by_offset(i).unwrap())
+            .collect()
+    }
+
     fn get_array_type(&self) -> ArrayElement {
         self.get_array_header().element
     }
@@ -384,6 +403,9 @@ impl<'a> ReferenceValue<'a> for ArrayReference<'a> {
 }
 
 impl<'a> ObjectReference<'a> {
+    pub(crate) fn hash_code(&self) -> i32 {
+        self.data as i32
+    }
     pub(crate) fn new_object(
         class_ref: ClassRef,
         start_ptr: *const u8,
@@ -415,8 +437,35 @@ impl<'a> ObjectReference<'a> {
     write_value_at!(write_long, Long, i64);
     write_value_at!(write_float, Float, f32);
     write_value_at!(write_double, Double, f64);
-    write_value_at!(write_object, ObjectRef, ObjectReference);
-    write_value_at!(write_array, ArrayRef, ArrayReference);
+    pub(crate) unsafe fn write_reference(
+        &self,
+        index: usize,
+        value: &Value<'a>,
+    ) -> VmExecResult<()> {
+        let total_fields = self.get_data_length();
+        if index >= total_fields {
+            return Err(VmError::IndexOutOfBounds);
+        }
+        let offset = self.data_offset() + 8 * index;
+        let pointer = self.data.add(offset);
+        match value {
+            Value::ObjectRef(v) => {
+                std::ptr::write(pointer as *mut ObjectReference, *v);
+                Ok(())
+            }
+            Value::ArrayRef(v) => {
+                std::ptr::write(pointer as *mut ArrayReference, *v);
+                Ok(())
+            }
+            Value::Null => {
+                std::ptr::write(pointer as *mut u64, 0);
+                Ok(())
+            }
+            _ => Err(VmError::ValueTypeMissMatch),
+        }
+    }
+    write_nullable_value_at!(write_object, ObjectRef, ObjectReference);
+    write_nullable_value_at!(write_array, ArrayRef, ArrayReference);
 
     //TODO 校验Value与RuntimeFieldInfo是否一致
     unsafe fn write_value_at_offset(
@@ -434,6 +483,8 @@ impl<'a> ObjectReference<'a> {
             "J" => self.write_long(offset, value),
             "S" => self.write_int(offset, value),
             "Z" => self.write_int(offset, value),
+            //Object是所有的父类
+            "Ljava/lang/Object;" => self.write_reference(offset, value),
             other => {
                 if other.starts_with('[') {
                     self.write_array(offset, value)
@@ -457,6 +508,8 @@ impl<'a> ObjectReference<'a> {
             "J" => self.read_long(offset),
             "S" => self.read_int(offset),
             "Z" => self.read_int(offset),
+            //Object是所有的父类
+            "Ljava/lang/Object;" => self.read_reference(offset),
             other => {
                 if other.starts_with('[') {
                     self.read_array(offset)
@@ -471,8 +524,31 @@ impl<'a> ObjectReference<'a> {
     read_value_at!(read_long, Long, i64);
     read_value_at!(read_float, Float, f32);
     read_value_at!(read_double, Double, f64);
-    read_value_at!(read_object, ObjectRef, ObjectReference);
-    read_value_at!(read_array, ArrayRef, ArrayReference);
+    pub(crate) unsafe fn read_reference(&self, index: usize) -> VmExecResult<Value<'a>> {
+        let total_fields = self.get_data_length();
+        if index >= total_fields {
+            return Err(VmError::IndexOutOfBounds);
+        }
+        let value_type = self.get_header().kind();
+
+        let offset = self.data_offset() + 8 * index;
+        let pointer = self.data.add(offset);
+        let data = std::ptr::read(pointer as *mut u64);
+        if data == 0 {
+            Ok(Value::Null)
+        } else {
+            match value_type {
+                ReferenceValueType::Object => Ok(Value::ObjectRef(std::ptr::read(
+                    pointer as *mut ObjectReference,
+                ))),
+                ReferenceValueType::Array => Ok(Value::ArrayRef(std::ptr::read(
+                    pointer as *mut ArrayReference,
+                ))),
+            }
+        }
+    }
+    read_nullable_value_at!(read_object, ObjectRef, ObjectReference);
+    read_nullable_value_at!(read_array, ArrayRef, ArrayReference);
 
     pub fn is_instance_of(&self, class_ref: ClassRef<'a>) -> bool {
         self.get_class().is_subclass_of(&class_ref.name)

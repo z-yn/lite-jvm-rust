@@ -58,7 +58,7 @@ impl<'a> VirtualMachine<'a> {
             method_area: MethodArea::default(),
             object_heap: ObjectHeap::new(heap_size),
             vm_stacks: Arena::new(),
-            static_area: StaticArea::new(),
+            static_area: StaticArea::new(1024 * 1024),
             native_method_area: NativeMethodArea::new_with_default_native(),
         }
     }
@@ -72,11 +72,16 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut VirtualMachineStack<'a>,
         class_name: &str,
     ) -> Result<ObjectReference<'a>, MethodCallError<'a>> {
-        let class_ref = self.get_class_by_name(call_stack, class_name)?;
-        let class_object = self.new_object_by_class_name(call_stack, "java/lang/Class")?;
-        let string_object = self.new_java_lang_string_object(call_stack, &class_ref.name)?;
-        class_object.set_field_by_name("name", &Value::ObjectRef(string_object))?;
-        Ok(class_object)
+        if let Some(v) = self.static_area.class_constant_pool.get(class_name) {
+            Ok(*v)
+        } else {
+            // self.get_class_by_name(call_stack, class_name)?;
+            let class_ref = self.get_class_by_name(call_stack, "java/lang/Class")?;
+            let class_object = self.static_area.new_object(class_ref);
+            let string_object = self.new_java_lang_string_object(call_stack, class_name)?;
+            class_object.set_field_by_name("name", &Value::ObjectRef(string_object))?;
+            Ok(class_object)
+        }
     }
 
     pub fn new_java_lang_string_object(
@@ -84,21 +89,29 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut VirtualMachineStack<'a>,
         value: &str,
     ) -> Result<ObjectReference<'a>, MethodCallError<'a>> {
-        let char_array: Vec<Value<'a>> =
-            value.encode_utf16().map(|c| Value::Int(c as i32)).collect();
-        let array_ref = self.new_array(
-            ArrayElement::PrimaryValue(PrimaryType::Char),
-            char_array.len(),
-        );
-        char_array
-            .into_iter()
-            .enumerate()
-            .for_each(|(index, value)| array_ref.set_field_by_offset(index, &value).unwrap());
-
-        let object = self.new_object_by_class_name(call_stack, "java/lang/String")?;
-        object.set_field_by_name("value", &Value::ArrayRef(array_ref))?;
-        object.set_field_by_name("hash", &Value::Int(0))?;
-        Ok(object)
+        if let Some(v) = self.static_area.string_constant_pool.get(value) {
+            Ok(*v)
+        } else {
+            let char_array: Vec<Value<'a>> =
+                value.encode_utf16().map(|c| Value::Int(c as i32)).collect();
+            let array_ref = self.new_array(
+                ArrayElement::PrimaryValue(PrimaryType::Char),
+                char_array.len(),
+            );
+            char_array
+                .into_iter()
+                .enumerate()
+                .for_each(|(index, value)| array_ref.set_field_by_offset(index, &value).unwrap());
+            let string_class_ref =
+                self.lookup_class_and_initialize(call_stack, "java/lang/String")?;
+            let object = self.static_area.new_object(string_class_ref);
+            object.set_field_by_name("value", &Value::ArrayRef(array_ref))?;
+            object.set_field_by_name("hash", &Value::Int(0))?;
+            self.static_area
+                .string_constant_pool
+                .insert(value.to_string(), object);
+            Ok(object)
+        }
     }
 
     fn init_static_fields(
@@ -179,7 +192,7 @@ impl<'a> VirtualMachine<'a> {
         self.initialize_class(call_stack, class)?;
         Ok(class)
     }
-    pub fn look_method(
+    pub fn lookup_method(
         &mut self,
         call_stack: &mut VirtualMachineStack<'a>,
         class_name: &str,
@@ -264,9 +277,12 @@ impl<'a> VirtualMachine<'a> {
             "{}=> invoke_native_method {}:{}{}",
             depth, class_ref.name, method_ref.name, method_ref.descriptor
         );
-        self.native_method_area
-            .get_method(&class_ref.name, &method_ref.name, &method_ref.descriptor)
-            .unwrap()(self, call_stack, object, args)
+        let native_method = self.native_method_area.get_method(
+            &class_ref.name,
+            &method_ref.name,
+            &method_ref.descriptor,
+        );
+        native_method.unwrap()(self, call_stack, object, args)
     }
 
     pub fn invoke_method(
@@ -298,8 +314,33 @@ impl<'a> VirtualMachine<'a> {
 mod tests {
 
     #[test]
-    fn test_exec() {
+    fn test_hello() {
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
+        use crate::loaded_class::ClassStatus;
+        use crate::virtual_machine::VirtualMachine;
+        let mut vm = VirtualMachine::new(102400);
+        let file_system_path = FileSystemClassPath::new("./resources").unwrap();
+        vm.add_class_path(Box::new(file_system_path));
+        let rt_jar_path = JarFileClassPath::new("./resources/rt.jar").unwrap();
+        let call_stack = vm.allocate_call_stack();
+        vm.add_class_path(Box::new(rt_jar_path));
+        let class_ref = vm
+            .lookup_class_and_initialize(call_stack, "HelloWorld")
+            .unwrap();
+        assert_eq!(class_ref.status, ClassStatus::Initialized);
+        // 实现System.out.println有点复杂。
+
+        // let method_ref = class_ref
+        //     .get_method("main", "([Ljava/lang/String;)V")
+        //     .unwrap();
+        // vm.invoke_method(call_stack, class_ref, method_ref, None, Vec::new())
+        //     .unwrap();
+    }
+
+    #[test]
+    fn test_field_value() {
+        use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
+        use crate::jvm_values::ReferenceValue;
         use crate::jvm_values::Value;
         use crate::loaded_class::ClassStatus;
         use crate::virtual_machine::VirtualMachine;
@@ -313,12 +354,49 @@ mod tests {
             .lookup_class_and_initialize(call_stack, "FieldTest")
             .unwrap();
         assert_eq!(class_ref.status, ClassStatus::Initialized);
-        let an_int = vm.get_static(class_ref, "anInt");
-        assert!(matches!(an_int, Some(Value::Int(2))));
-        let main_method = class_ref
-            .get_method("main", "([Ljava/lang/String;)V")
+        //测试初始化数据
+        //由ConstantValue设置的初始值
+        let name = vm.get_static(class_ref, "NAME").unwrap();
+        assert_eq!(name.get_string().unwrap(), "static");
+        //由<clinit>的初始值
+        let an_int = vm
+            .get_static(class_ref, "anInt")
+            .unwrap()
+            .get_int()
             .unwrap();
+        assert_eq!(2, an_int);
+        //初始化对象
+        let object_ref = vm.new_object(class_ref);
+        let a = object_ref.get_field_by_name("a").unwrap();
+        assert_eq!(a.get_int().unwrap(), 0i32);
+        let b = object_ref.get_field_by_name("b").unwrap();
+        assert_eq!(b, Value::Null);
+
+        let field_double = object_ref.get_field_by_name("fieldDouble").unwrap();
+        assert_eq!(field_double.get_double().unwrap(), 0f64);
+
+        //调用初始化方法
+        let init_method = class_ref.get_method("<init>", "()V").unwrap();
+        vm.invoke_method(
+            call_stack,
+            class_ref,
+            init_method,
+            Some(object_ref),
+            Vec::new(),
+        )
+        .unwrap();
+        let field_double = object_ref.get_field_by_name("fieldDouble").unwrap();
+        //初始化后fieldDouble应该是100
+        assert_eq!(field_double.get_double().unwrap(), 100f64);
+        let field_float = object_ref.get_field_by_name("fieldFloat").unwrap();
+        //初始化后fieldFloat应该是50
+        assert_eq!(field_float.get_float().unwrap(), 50f32);
+
+        //测试方法调用
+        let main_method = class_ref.get_method("increaseInt", "()V").unwrap();
         vm.invoke_method(call_stack, class_ref, main_method, None, Vec::new())
             .unwrap();
+        let an_int = vm.get_static(class_ref, "anInt");
+        assert!(matches!(an_int, Some(Value::Int(3))));
     }
 }

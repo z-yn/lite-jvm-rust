@@ -323,8 +323,16 @@ impl<'a> VirtualMachineStackFrame<'a> {
     generate_pop!(pop_float, Float, f32);
     generate_pop!(pop_double, Double, f64);
     generate_get_local!(get_local_int, Int, i32);
-
-    generate_array_load!(exec_aaload, ObjectRef);
+    fn exec_aaload(&mut self) -> InvokeResult<'a, ()> {
+        let index = self.pop_int()? as usize;
+        let array = self.pop_array()?;
+        let value = array.get_field_by_offset(index)?;
+        if let ObjectRef(_) | ArrayRef(_) | Null = value {
+            self.push(value)
+        } else {
+            Err(MethodCallError::InternalError(ValueTypeMissMatch))
+        }
+    }
     generate_int_array_load!(exec_caload, i16);
     generate_int_array_load!(exec_saload, i16);
     generate_array_load!(exec_iaload, Int);
@@ -332,8 +340,18 @@ impl<'a> VirtualMachineStackFrame<'a> {
     generate_array_load!(exec_faload, Float);
     generate_array_load!(exec_daload, Double);
     generate_int_array_load!(exec_baload, i8);
-
-    generate_array_store!(exec_aastore, ObjectRef);
+    fn exec_aastore(&mut self) -> InvokeResult<'a, ()> {
+        let value = self.pop()?;
+        let index = self.pop_int()? as usize;
+        let array = self.pop_array()?;
+        if let ObjectRef(_) | ArrayRef(_) | Null = value {
+            array
+                .set_field_by_offset(index, &value)
+                .map_err(MethodCallError::from)
+        } else {
+            Err(MethodCallError::InternalError(ValueTypeMissMatch))
+        }
+    }
     generate_array_store!(exec_castore, Int);
     generate_array_store!(exec_sastore, Int);
     generate_array_store!(exec_iastore, Int);
@@ -356,7 +374,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     generate_load!(exec_lload, Long);
 
     fn exec_astore(&mut self, index: u8) -> InvokeResult<'a, ()> {
-        let object_ref = self.pop_object_or_null()?;
+        let object_ref = self.pop_reference_or_null()?;
         self.set_local(index as usize, object_ref.clone())
             .map_err(MethodCallError::from)
     }
@@ -420,17 +438,6 @@ impl<'a> VirtualMachineStackFrame<'a> {
             )))
         }
     }
-    fn pop_object_or_null(&mut self) -> InvokeResult<'a, Value<'a>> {
-        let value = self.pop()?;
-        if let ObjectRef(_) | Null = value {
-            Ok(value)
-        } else {
-            Err(MethodCallError::InternalError(VmError::ExecuteCodeError(
-                "ShouldBeObjectOrNull".to_string(),
-            )))
-        }
-    }
-
     fn pop_reference_or_null(&mut self) -> InvokeResult<'a, Value<'a>> {
         let value = self.pop()?;
         if let ObjectRef(_) | ArrayRef(_) | Null = value {
@@ -1226,10 +1233,13 @@ impl<'a> VirtualMachineStackFrame<'a> {
         call_stack: &mut VirtualMachineStack<'a>,
     ) -> InvokeMethodResult<'a> {
         let depth = "\t".repeat(call_stack.depth() - 1);
-
         println!(
-            "{}=> invoke_method {}:{}{}",
-            depth, self.class_ref.name, self.method_ref.name, self.method_ref.descriptor
+            "{}=> invoke_method {}:{}{}--{:?}",
+            depth,
+            self.class_ref.name,
+            self.method_ref.name,
+            self.method_ref.descriptor,
+            self.local_var_table
         );
 
         loop {
