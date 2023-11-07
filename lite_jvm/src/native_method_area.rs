@@ -1,14 +1,14 @@
 use crate::java_exception::{InvokeMethodResult, MethodCallError};
 use crate::jvm_error::VmError;
 use crate::jvm_values::{ObjectReference, ReferenceValue, Value};
+use crate::stack::CallStack;
 use crate::virtual_machine::VirtualMachine;
-use crate::virtual_machine_stack::VirtualMachineStack;
 use class_file_reader::class_file_version::ClassFileVersion;
 use std::collections::HashMap;
 
 pub type NativeMethod<'a> = fn(
     &mut VirtualMachine<'a>,
-    &mut VirtualMachineStack<'a>,
+    &mut CallStack<'a>,
     Option<ObjectReference<'a>>,
     Vec<Value<'a>>,
 ) -> InvokeMethodResult<'a>;
@@ -68,7 +68,7 @@ impl<'a> NativeMethodArea<'a> {
     }
     pub fn nop(
         _vm: &mut VirtualMachine<'a>,
-        _call_stack: &mut VirtualMachineStack<'a>,
+        _call_stack: &mut CallStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
@@ -76,7 +76,7 @@ impl<'a> NativeMethodArea<'a> {
     }
     pub fn sun_misc_unsafe_array_base_offset(
         _vm: &mut VirtualMachine<'a>,
-        _call_stack: &mut VirtualMachineStack<'a>,
+        _call_stack: &mut CallStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
@@ -85,7 +85,7 @@ impl<'a> NativeMethodArea<'a> {
 
     pub fn java_lang_class_hash_code(
         _vm: &mut VirtualMachine<'a>,
-        _call_stack: &mut VirtualMachineStack<'a>,
+        _call_stack: &mut CallStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
@@ -97,7 +97,7 @@ impl<'a> NativeMethodArea<'a> {
     }
     pub fn java_lang_class_desired_assertion_status0(
         _vm: &mut VirtualMachine<'a>,
-        _call_stack: &mut VirtualMachineStack<'a>,
+        _call_stack: &mut CallStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
@@ -105,7 +105,7 @@ impl<'a> NativeMethodArea<'a> {
     }
     pub fn java_lang_system_arraycopy(
         _vm: &mut VirtualMachine<'a>,
-        _call_stack: &mut VirtualMachineStack<'a>,
+        _call_stack: &mut CallStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
@@ -124,7 +124,7 @@ impl<'a> NativeMethodArea<'a> {
     }
     pub fn java_lang_class_get_primitive_class(
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
@@ -145,7 +145,7 @@ impl<'a> NativeMethodArea<'a> {
     }
     pub fn java_lang_system_register_native(
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         _receiver: Option<ObjectReference<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {

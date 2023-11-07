@@ -5,6 +5,7 @@ use crate::loaded_class::{Class, ClassRef, ClassStatus};
 use crate::runtime_constant_pool::RuntimeConstantPool;
 use crate::runtime_field_info::RuntimeFieldInfo;
 use crate::runtime_method_info::{MethodKey, RuntimeMethodInfo};
+use class_file_reader::attribute_info::AttributeType;
 use class_file_reader::class_file::ClassFile;
 use indexmap::IndexMap;
 use std::cell::RefCell;
@@ -110,6 +111,15 @@ impl<'a> MethodArea<'a> {
             let method = RuntimeMethodInfo::from(method_info, &constant_pool)?;
             methods.insert(MethodKey::by_method(&method), method);
         }
+        let mut source_code = Vec::new();
+        for x in &class_file.attribute_info {
+            if x.name == AttributeType::SourceFile {
+                let files = String::from_utf8_lossy(&x.info);
+                for x in files.lines() {
+                    source_code.push(x.to_string());
+                }
+            }
+        }
         let class_ref = self.classes.alloc(Class {
             version: class_file.version,
             total_num_of_fields: super_num_of_fields + fields.len(),
@@ -123,6 +133,7 @@ impl<'a> MethodArea<'a> {
             methods,
             super_class_name: class_file.super_class_name,
             interface_names: class_file.interface_names,
+            source_code,
         });
         //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
         let class_ref = unsafe {

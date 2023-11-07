@@ -39,6 +39,8 @@ pub struct Class<'a> {
     pub super_class_name: Option<String>,
     pub interface_names: Vec<String>,
 
+    pub source_code: Vec<String>,
+
     pub total_num_of_fields: usize,
 }
 

@@ -11,13 +11,12 @@ use crate::loaded_class::{ClassRef, MethodRef};
 use crate::operand_stack::OperandStack;
 use crate::runtime_attribute_info::ExceptionTable;
 use crate::runtime_constant_pool::RuntimeConstantPoolEntry;
+use crate::stack::CallStack;
+use crate::stack_frame::InstructionResult::{ContinueMethodExecution, ReturnFromMethod};
 use crate::virtual_machine::VirtualMachine;
-use crate::virtual_machine_stack::VirtualMachineStack;
-use crate::virtual_machine_stack_frame::InstructionResult::{
-    ContinueMethodExecution, ReturnFromMethod,
-};
 use class_file_reader::cesu8_byte_buffer::ByteBuffer;
 use class_file_reader::instruction::{read_one_instruction, Instruction};
+use indexmap::IndexMap;
 use std::ops::{BitAnd, BitOr, BitXor, Div, Mul, Rem, Shl, Shr, Sub};
 
 #[derive(Debug)]
@@ -32,7 +31,7 @@ pub enum LocalValue<'a> {
     PlaceHolder,
 }
 
-pub struct VirtualMachineStackFrame<'a> {
+pub struct StackFrame<'a> {
     pub(crate) class_ref: ClassRef<'a>,
     pub(crate) method_ref: MethodRef<'a>,
     pub(crate) pc: usize,
@@ -41,6 +40,7 @@ pub struct VirtualMachineStackFrame<'a> {
     pub(crate) local_var_table: Vec<LocalValue<'a>>,
     pub(crate) op_stack: OperandStack<'a>,
     pub(crate) exception_tables: &'a Vec<ExceptionTable>,
+    pub(crate) line_number_table: &'a IndexMap<u16, u16>,
 }
 
 type InvokeResult<'a, T> = Result<T, MethodCallError<'a>>;
@@ -265,15 +265,15 @@ macro_rules! generate_cmp {
     };
 }
 
-impl<'a> VirtualMachineStackFrame<'a> {
+impl<'a> StackFrame<'a> {
     pub fn new(
         class_ref: ClassRef<'a>,
         method_ref: MethodRef<'a>,
         local_variables: Vec<Value<'a>>,
-    ) -> VirtualMachineStackFrame<'a> {
+    ) -> StackFrame<'a> {
         let code_attr = method_ref.code.as_ref().expect("Should Has Code");
 
-        let mut frame = VirtualMachineStackFrame {
+        let mut frame = StackFrame {
             class_ref,
             method_ref,
             byte_buffer: ByteBuffer::new(&code_attr.code),
@@ -281,6 +281,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
             local_var_table: Vec::new(),
             op_stack: OperandStack::new(code_attr.max_stack as usize),
             exception_tables: &code_attr.exception_table,
+            line_number_table: &code_attr.line_number_table,
         };
         for value in local_variables {
             frame.push_local(value);
@@ -513,7 +514,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn exec_anewarray(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         constant_index: u16,
     ) -> InvokeResult<'a, ()> {
         let length = self.pop_int()? as usize;
@@ -539,7 +540,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn check_instance_of(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         constant_pool_index: u16,
         value: &Value<'a>,
     ) -> InvokeResult<'a, bool> {
@@ -588,7 +589,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn execute_instruction(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         instruction: Instruction,
     ) -> InvokeResult<'a, InstructionResult<'a>> {
         let depth = "\t".repeat(call_stack.depth());
@@ -939,7 +940,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn exec_new_object(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         pool_index: u16,
     ) -> InvokeResult<'a, ()> {
         let class_name = self.get_class_name_in_constant_pool(pool_index)?;
@@ -972,7 +973,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn exec_ldc(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         index: u16,
     ) -> InvokeResult<'a, ()> {
         let value = self.get_constant_pool(index)?;
@@ -1061,7 +1062,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn exec_get_static(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         field_index: u16,
     ) -> InvokeResult<'a, ()> {
         let (class_name, field_name, _descriptor) = self.get_field_in_constant_pool(field_index)?;
@@ -1081,7 +1082,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn exec_put_static(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         field_index: u16,
     ) -> InvokeResult<'a, ()> {
         let static_value = self.pop()?;
@@ -1092,7 +1093,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn exec_invoke_interface(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         offset: u16,
         _arg_count: u8,
     ) -> InvokeResult<'a, ()> {
@@ -1113,7 +1114,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn invoke_virtual_on_receiver(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         class_or_interface_ref: ClassRef<'a>,
         method_name: &str,
         descriptor: &str,
@@ -1149,7 +1150,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn exec_invoke_special(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         offset: u16,
     ) -> InvokeResult<'a, ()> {
         if let RuntimeConstantPoolEntry::MethodReference(class_name, method_name, descriptor) =
@@ -1177,7 +1178,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn exec_invoke_virtual(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         offset: u16,
     ) -> InvokeResult<'a, ()> {
         if let RuntimeConstantPoolEntry::MethodReference(class_name, method_name, descriptor)
@@ -1198,7 +1199,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     fn exec_invoke_static(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
         offset: u16,
     ) -> InvokeResult<'a, ()> {
         if let RuntimeConstantPoolEntry::MethodReference(class_name, method_name, descriptor)
@@ -1230,7 +1231,7 @@ impl<'a> VirtualMachineStackFrame<'a> {
     pub fn execute(
         &mut self,
         vm: &mut VirtualMachine<'a>,
-        call_stack: &mut VirtualMachineStack<'a>,
+        call_stack: &mut CallStack<'a>,
     ) -> InvokeMethodResult<'a> {
         let depth = "\t".repeat(call_stack.depth() - 1);
         println!(
@@ -1269,5 +1270,19 @@ impl<'a> VirtualMachineStackFrame<'a> {
                 _ => {}
             }
         }
+    }
+
+    pub fn get_line_number(&self) -> u16 {
+        let code_index = self.pc as u16;
+        if let Some(number) = self.line_number_table.get(&code_index) {
+            *number
+        } else {
+            0
+        }
+    }
+
+    pub fn get_source_code(&self, index: u16) -> Option<&String> {
+        let offset = (index - 1) as usize;
+        self.class_ref.source_code.get(offset)
     }
 }
