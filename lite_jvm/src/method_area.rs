@@ -180,7 +180,7 @@ mod tests {
         assert!(matches!(result.status, ClassStatus::Loaded));
         assert_eq!(2, area.num_of_classes());
 
-        let main_method = result
+        let (_, main_method) = result
             .get_method_by_checking_super("main", "([Ljava/lang/String;)V")
             .unwrap();
 

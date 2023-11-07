@@ -571,19 +571,10 @@ impl<'a> ReferenceValue<'a> for ObjectReference<'a> {
     fn set_field_by_name(&self, name: &str, value: &Value<'_>) -> VmExecResult<()> {
         //先查找自身类中的field
         let class = self.get_class();
-        if let Some(field) = class.fields.get(name) {
-            unsafe {
-                return self.write_value_at_offset(field, value);
-            }
+        let field = class.get_field_by_name(name)?;
+        unsafe {
+            return self.write_value_at_offset(field, value);
         }
-        if let Some(super_class) = class.super_class {
-            if let Some(field) = super_class.fields.get(name) {
-                unsafe {
-                    return self.write_value_at_offset(field, value);
-                }
-            }
-        }
-        Err(VmError::FieldNotFoundException(name.to_string()))
     }
 
     fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> VmExecResult<()> {
@@ -594,16 +585,9 @@ impl<'a> ReferenceValue<'a> for ObjectReference<'a> {
 
     fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'a>> {
         //先查找自身类中的field
-        let class = self.get_class();
-        if let Some(field) = class.fields.get(name) {
-            return unsafe { self.read_value_at_offset(field) };
-        }
-        if let Some(super_class) = class.super_class {
-            if let Some(field) = super_class.fields.get(name) {
-                return unsafe { self.read_value_at_offset(field) };
-            }
-        }
-        Err(VmError::FieldNotFoundException(name.to_string()))
+        let class_ref = self.get_class();
+        let field = class_ref.get_field_by_name(name)?;
+        return unsafe { self.read_value_at_offset(field) };
     }
 
     fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'a>> {

@@ -198,10 +198,10 @@ impl<'a> VirtualMachine<'a> {
         class_name: &str,
         method_name: &str,
         descriptor: &str,
-    ) -> Result<(ClassRef, MethodRef), MethodCallError<'a>> {
+    ) -> Result<MethodRef<'a>, MethodCallError<'a>> {
         let class_ref = self.lookup_class_and_initialize(call_stack, class_name)?;
         let method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
-        Ok((class_ref, method_ref))
+        Ok(method_ref)
     }
 
     pub fn new_object(&mut self, class_ref: ClassRef) -> ObjectReference<'a> {
@@ -275,12 +275,12 @@ impl<'a> VirtualMachine<'a> {
         let depth = "\t".repeat(call_stack.depth() - 1);
         println!(
             "{}=> invoke_native_method {}:{}{}",
-            depth, class_ref.name, method_ref.name, method_ref.descriptor
+            depth, class_ref.name, method_ref.1.name, method_ref.1.descriptor
         );
         let native_method = self.native_method_area.get_method(
             &class_ref.name,
-            &method_ref.name,
-            &method_ref.descriptor,
+            &method_ref.1.name,
+            &method_ref.1.descriptor,
         );
         native_method.unwrap()(self, call_stack, object, args)
     }
@@ -293,13 +293,12 @@ impl<'a> VirtualMachine<'a> {
         object: Option<ObjectReference<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
-        if method_ref.is_native() {
+        if method_ref.1.is_native() {
             return self.invoke_native_method(call_stack, class_ref, method_ref, object, args);
         }
         let mut frame = call_stack.new_frame(class_ref, method_ref, object, args)?;
         let result = frame.as_mut().execute(self, call_stack);
         call_stack.pop_frame();
-        if let Err(MethodCallError::ExceptionThrown(e)) = result {}
         result
     }
 
@@ -399,5 +398,70 @@ mod tests {
             .unwrap();
         let an_int = vm.get_static(class_ref, "anInt");
         assert!(matches!(an_int, Some(Value::Int(3))));
+    }
+
+    #[test]
+    fn test_exception() {
+        use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
+        use crate::java_exception::MethodCallError;
+        use crate::jvm_values::Value;
+        use crate::loaded_class::ClassStatus;
+        use crate::virtual_machine::VirtualMachine;
+
+        let mut vm = VirtualMachine::new(102400);
+        let file_system_path = FileSystemClassPath::new("./resources").unwrap();
+        vm.add_class_path(Box::new(file_system_path));
+        let rt_jar_path = JarFileClassPath::new("./resources/rt.jar").unwrap();
+        let call_stack = vm.allocate_call_stack();
+        vm.add_class_path(Box::new(rt_jar_path));
+        let class_ref = vm
+            .lookup_class_and_initialize(call_stack, "ExceptionTest")
+            .unwrap();
+        assert_eq!(class_ref.status, ClassStatus::Initialized);
+        let obj_ref = vm.new_object(class_ref);
+
+        //测试异常try-catch
+        let method_recovery = class_ref.get_method("methodRecovery", "()I").unwrap();
+        let result = vm
+            .invoke_method(
+                call_stack,
+                class_ref,
+                method_recovery,
+                Some(obj_ref),
+                Vec::new(),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(result, Value::Int(2));
+
+        //测试抛出异常
+        let throw_null_pointer_exception = class_ref
+            .get_method("throwNullPointException", "()I")
+            .unwrap();
+        let result = vm.invoke_method(
+            call_stack,
+            class_ref,
+            throw_null_pointer_exception,
+            Some(obj_ref),
+            Vec::new(),
+        );
+        if let Err(MethodCallError::ExceptionThrown(exp)) = result {
+            let x = exp.get_class();
+            assert_eq!(x.name, "java/lang/NullPointerException")
+        }
+
+        //测试异常堆栈信息
+        let throw_null_pointer_exception = class_ref
+            .get_method("methodStackTrace", "()[Ljava/lang/StackTraceElement;")
+            .unwrap();
+        let result = vm
+            .invoke_method(
+                call_stack,
+                class_ref,
+                throw_null_pointer_exception,
+                Some(obj_ref),
+                Vec::new(),
+            )
+            .unwrap();
     }
 }

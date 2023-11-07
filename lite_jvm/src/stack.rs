@@ -41,7 +41,7 @@ impl<'a> CallStack<'a> {
         object: Option<ObjectReference<'a>>,
         args: Vec<Value<'a>>,
     ) -> VmExecResult<StackFrameRef<'a>> {
-        if method_ref.is_native() {
+        if method_ref.1.is_native() {
             return Err(VmError::NotImplemented);
         };
         let locals: Vec<Value<'a>> = object

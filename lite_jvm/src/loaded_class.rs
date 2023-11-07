@@ -45,6 +45,15 @@ pub struct Class<'a> {
 }
 
 impl<'a> Class<'a> {
+    pub fn get_field_by_name(&'a self, name: &str) -> VmExecResult<FieldRef<'a>> {
+        if let Some(field) = self.fields.get(name) {
+            return Ok(field);
+        }
+        if let Some(super_class) = self.super_class {
+            return super_class.get_field_by_name(name);
+        }
+        Err(VmError::FieldNotFoundException(name.to_string()))
+    }
     pub(crate) fn get_field(&self, offset: usize) -> VmExecResult<FieldRef<'a>> {
         assert!(offset < self.total_num_of_fields);
         let super_class_offset = if let Some(class_ref) = self.super_class {
@@ -55,14 +64,14 @@ impl<'a> Class<'a> {
         } else {
             0
         };
-        let method = self
+        let field = self
             .fields
             .get_index(offset - super_class_offset)
             .expect("")
             .1;
         //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
         let method_ref = unsafe {
-            let const_ptr: *const RuntimeFieldInfo = method;
+            let const_ptr: *const RuntimeFieldInfo = field;
             &*const_ptr
         };
         Ok(method_ref)
@@ -91,23 +100,8 @@ impl<'a> Class<'a> {
         false
     }
 
-    pub fn get_method(&self, method_name: &str, descriptor: &str) -> VmExecResult<MethodRef<'a>> {
-        if let Some(method) = self.methods.get(&MethodKey::new(method_name, descriptor)) {
-            //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
-            let method_ref = unsafe {
-                let const_ptr: *const RuntimeMethodInfo = method;
-                &*const_ptr
-            };
-            Ok(method_ref)
-        } else {
-            Err(VmError::MethodNotFoundException(
-                method_name.to_string(),
-                descriptor.to_string(),
-            ))
-        }
-    }
-    pub fn get_method_by_checking_super(
-        &self,
+    pub fn get_method(
+        &'a self,
         method_name: &str,
         descriptor: &str,
     ) -> VmExecResult<MethodRef<'a>> {
@@ -117,23 +111,40 @@ impl<'a> Class<'a> {
                 let const_ptr: *const RuntimeMethodInfo = method;
                 &*const_ptr
             };
-            return Ok(method_ref);
+            Ok((self, method_ref))
+        } else {
+            Err(VmError::MethodNotFoundException(
+                method_name.to_string(),
+                descriptor.to_string(),
+            ))
+        }
+    }
+    pub fn get_method_by_checking_super(
+        &'a self,
+        method_name: &str,
+        descriptor: &str,
+    ) -> VmExecResult<MethodRef<'a>> {
+        if let Some(method) = self.methods.get(&MethodKey::new(method_name, descriptor)) {
+            //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
+            let method_ref = unsafe {
+                let const_ptr: *const RuntimeMethodInfo = method;
+                &*const_ptr
+            };
+            return Ok((self, method_ref));
         }
 
         //查找父类
-        if let Some(supper_class) = self.super_class {
-            for (_, method) in &supper_class.methods {
-                if method.name == method_name && method.descriptor == descriptor {
-                    return Ok(method);
-                }
+        if let Some(supper_class) = &self.super_class {
+            let by_super_class = supper_class.get_method_by_checking_super(method_name, descriptor);
+            if by_super_class.is_ok() {
+                return by_super_class;
             }
         }
         //查找接口
         for (_, interface) in &self.interfaces {
-            for (_, method) in &interface.methods {
-                if method.name == method_name && method.descriptor == descriptor {
-                    return Ok(method);
-                }
+            let by_interface = interface.get_method_by_checking_super(method_name, descriptor);
+            if by_interface.is_ok() {
+                return by_interface;
             }
         }
         Err(VmError::MethodNotFoundException(
@@ -161,7 +172,7 @@ impl<'a> PartialEq<Self> for Class<'a> {
 
 impl<'a> Eq for Class<'a> {}
 
-pub type MethodRef<'a> = &'a RuntimeMethodInfo;
+pub type MethodRef<'a> = (ClassRef<'a>, &'a RuntimeMethodInfo);
 
 pub type FieldRef<'a> = &'a RuntimeFieldInfo;
 

@@ -271,7 +271,7 @@ impl<'a> StackFrame<'a> {
         method_ref: MethodRef<'a>,
         local_variables: Vec<Value<'a>>,
     ) -> StackFrame<'a> {
-        let code_attr = method_ref.code.as_ref().expect("Should Has Code");
+        let code_attr = method_ref.1.code.as_ref().expect("Should Has Code");
 
         let mut frame = StackFrame {
             class_ref,
@@ -967,7 +967,7 @@ impl<'a> StackFrame<'a> {
     }
 
     fn get_constant_pool(&self, offset: u16) -> VmExecResult<&'a RuntimeConstantPoolEntry> {
-        self.class_ref.constant_pool.get(offset)
+        self.method_ref.0.constant_pool.get(offset)
     }
 
     fn exec_ldc(
@@ -1119,9 +1119,10 @@ impl<'a> StackFrame<'a> {
         method_name: &str,
         descriptor: &str,
     ) -> InvokeResult<'a, ()> {
-        let mut method_ref = class_or_interface_ref.get_method(method_name, descriptor)?;
-        assert!(!method_ref.is_init_method() && !method_ref.is_class_init_method());
-        let method_args = &method_ref.descriptor_args_ret.args;
+        let method_ref =
+            class_or_interface_ref.get_method_by_checking_super(method_name, descriptor)?;
+        assert!(!method_ref.1.is_init_method() && !method_ref.1.is_class_init_method());
+        let method_args = &method_ref.1.descriptor_args_ret.args;
         //TODO validate method_args and poped args type
         let args = self.op_stack.pop_n(method_args.len())?;
         let pop_value = self.pop()?;
@@ -1130,7 +1131,7 @@ impl<'a> StackFrame<'a> {
                 //多态方法，方法要从当前对象去查方法实例
                 assert!(object_ref.is_instance_of(class_or_interface_ref));
                 let class_ref = object_ref.get_class();
-                method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
+                let method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
                 if let Some(v) =
                     vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?
                 {
@@ -1158,7 +1159,7 @@ impl<'a> StackFrame<'a> {
         {
             let class_ref = vm.lookup_class_and_initialize(call_stack, class_name)?;
             let method_ref = class_ref.get_method(method_name, descriptor)?;
-            let method_args = &method_ref.descriptor_args_ret.args;
+            let method_args = &method_ref.1.descriptor_args_ret.args;
             //TODO validate method_args and poped args type
             let args = self.pop_n(method_args.len())?;
             let object_ref = self.pop_object()?;
@@ -1215,8 +1216,8 @@ impl<'a> StackFrame<'a> {
                 self.class_ref
             };
             let method_ref = class_ref.get_method(method_name, descriptor)?;
-            assert!(method_ref.is_static());
-            let method_args = &method_ref.descriptor_args_ret.args;
+            assert!(method_ref.1.is_static());
+            let method_args = &method_ref.1.descriptor_args_ret.args;
             //TODO validate method_args and poped args type
             let args = self.op_stack.pop_n(method_args.len())?;
             if let Some(v) = vm.invoke_method(call_stack, class_ref, method_ref, None, args)? {
@@ -1238,8 +1239,8 @@ impl<'a> StackFrame<'a> {
             "{}=> invoke_method {}:{}{}--{:?}",
             depth,
             self.class_ref.name,
-            self.method_ref.name,
-            self.method_ref.descriptor,
+            self.method_ref.1.name,
+            self.method_ref.1.descriptor,
             self.local_var_table
         );
 
@@ -1253,15 +1254,16 @@ impl<'a> StackFrame<'a> {
                 Ok(ReturnFromMethod(return_value)) => {
                     return Ok(return_value);
                 }
-                Err(MethodCallError::ExceptionThrown(e)) => {
+                Err(MethodCallError::ExceptionThrown(exp_ref)) => {
                     let catch_exception = self
                         .exception_tables
                         .iter()
                         .find(|t| t.catch_line(self.pc as u16));
-                    if let Some(e) = catch_exception {
-                        self.goto(e.handler_pc as usize);
+                    if let Some(table) = catch_exception {
+                        self.push(ObjectRef(exp_ref))?;
+                        self.goto(table.handler_pc as usize);
                     } else {
-                        return Err(MethodCallError::ExceptionThrown(e));
+                        return Err(MethodCallError::ExceptionThrown(exp_ref));
                     }
                 }
                 Err(e) => {
@@ -1282,6 +1284,9 @@ impl<'a> StackFrame<'a> {
     }
 
     pub fn get_source_code(&self, index: u16) -> Option<&String> {
+        if index == 0 {
+            return None;
+        }
         let offset = (index - 1) as usize;
         self.class_ref.source_code.get(offset)
     }
