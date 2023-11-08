@@ -176,7 +176,13 @@ impl<'a> VirtualMachine<'a> {
             self.set_class_stage(class_ref, ClassStatus::Initializing);
 
             if let Ok(method_ref) = class_ref.get_method("<clinit>", "()V") {
-                self.invoke_method(call_stack, class_ref, method_ref, None, Vec::new())?;
+                self.invoke_method(
+                    call_stack,
+                    class_ref,
+                    method_ref,
+                    None::<ObjectReference>,
+                    Vec::new(),
+                )?;
             }
             self.set_class_stage(class_ref, ClassStatus::Initialized);
         }
@@ -274,7 +280,7 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut CallStack<'a>,
         class_ref: ClassRef<'a>,
         method_ref: MethodRef<'a>,
-        object: Option<Box<dyn ReferenceValue<'a>>>,
+        object: Option<impl ReferenceValue<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         let depth = "\t".repeat(call_stack.depth() - 1);
@@ -287,7 +293,7 @@ impl<'a> VirtualMachine<'a> {
             &method_ref.name,
             &method_ref.descriptor,
         );
-        native_method.unwrap()(self, call_stack, object, args)
+        native_method.unwrap()(self, call_stack, object.map(|e| e.as_value()), args)
     }
 
     pub fn invoke_method(
@@ -295,7 +301,7 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut CallStack<'a>,
         class_ref: ClassRef<'a>,
         method_ref: MethodRef<'a>,
-        object: Option<Box<dyn ReferenceValue<'a>>>,
+        object: Option<impl ReferenceValue<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         if method_ref.is_native() {
@@ -317,6 +323,7 @@ impl<'a> VirtualMachine<'a> {
 }
 
 mod tests {
+    use crate::jvm_values::ObjectReference;
 
     #[test]
     fn test_hello() {
@@ -386,7 +393,7 @@ mod tests {
             call_stack,
             class_ref,
             init_method,
-            Some(object_ref.boxed()),
+            Some(object_ref),
             Vec::new(),
         )
         .unwrap();
@@ -399,8 +406,14 @@ mod tests {
 
         //测试方法调用
         let main_method = class_ref.get_method("increaseInt", "()V").unwrap();
-        vm.invoke_method(call_stack, class_ref, main_method, None, Vec::new())
-            .unwrap();
+        vm.invoke_method(
+            call_stack,
+            class_ref,
+            main_method,
+            None::<ObjectReference>,
+            Vec::new(),
+        )
+        .unwrap();
         let an_int = vm.get_static(class_ref, "anInt");
         assert!(matches!(an_int, Some(Value::Int(3))));
     }
@@ -409,7 +422,6 @@ mod tests {
     fn test_exception() {
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
         use crate::java_exception::MethodCallError;
-        use crate::jvm_values::ReferenceValue;
         use crate::jvm_values::Value;
         use crate::loaded_class::ClassStatus;
         use crate::virtual_machine::VirtualMachine;
@@ -432,7 +444,7 @@ mod tests {
                 call_stack,
                 class_ref,
                 method_recovery,
-                Some(obj_ref.boxed()),
+                Some(obj_ref),
                 Vec::new(),
             )
             .unwrap()
@@ -447,7 +459,7 @@ mod tests {
             call_stack,
             class_ref,
             throw_null_pointer_exception,
-            Some(obj_ref.boxed()),
+            Some(obj_ref),
             Vec::new(),
         );
         if let Err(MethodCallError::ExceptionThrown(exp)) = result {
@@ -464,7 +476,7 @@ mod tests {
                 call_stack,
                 class_ref,
                 throw_null_pointer_exception,
-                Some(obj_ref.boxed()),
+                Some(obj_ref),
                 Vec::new(),
             )
             .unwrap();

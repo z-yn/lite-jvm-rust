@@ -38,7 +38,7 @@ impl<'a> CallStack<'a> {
         &mut self,
         class_ref: ClassRef<'a>,
         method_ref: MethodRef<'a>,
-        object: Option<Box<dyn ReferenceValue<'a>>>,
+        object: Option<impl ReferenceValue<'a>>,
         args: Vec<Value<'a>>,
     ) -> VmExecResult<StackFrameRef<'a>> {
         if method_ref.is_native() {

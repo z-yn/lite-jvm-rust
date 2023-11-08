@@ -1144,13 +1144,9 @@ impl<'a> StackFrame<'a> {
                 let class_ref = object_ref.get_class();
                 let (class_ref, method_ref) =
                     class_ref.get_method_by_checking_super(method_name, descriptor)?;
-                if let Some(v) = vm.invoke_method(
-                    call_stack,
-                    class_ref,
-                    method_ref,
-                    Some(object_ref.boxed()),
-                    args,
-                )? {
+                if let Some(v) =
+                    vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?
+                {
                     self.push(v)?;
                 }
                 Ok(())
@@ -1160,13 +1156,9 @@ impl<'a> StackFrame<'a> {
                 //多态方法，方法要从当前对象去查方法实例
                 let (class_ref, method_ref) =
                     class_or_interface_ref.get_method_by_checking_super(method_name, descriptor)?;
-                if let Some(v) = vm.invoke_method(
-                    call_stack,
-                    class_ref,
-                    method_ref,
-                    Some(object_ref.boxed()),
-                    args,
-                )? {
+                if let Some(v) =
+                    vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?
+                {
                     self.push(v)?;
                 }
                 Ok(())
@@ -1198,13 +1190,9 @@ impl<'a> StackFrame<'a> {
             //必须是子类调用父类的方法，自身的私有方法，以及实例初始化化方法
             assert!(object_ref.is_instance_of(class_ref));
 
-            if let Some(v) = vm.invoke_method(
-                call_stack,
-                class_ref,
-                method_ref,
-                Some(object_ref.boxed()),
-                args,
-            )? {
+            if let Some(v) =
+                vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?
+            {
                 self.push(v)?;
             }
             Ok(())
@@ -1256,7 +1244,13 @@ impl<'a> StackFrame<'a> {
             let method_args = &method_ref.descriptor_args_ret.args;
             //TODO validate method_args and poped args type
             let args = self.op_stack.pop_n(method_args.len())?;
-            if let Some(v) = vm.invoke_method(call_stack, class_ref, method_ref, None, args)? {
+            if let Some(v) = vm.invoke_method(
+                call_stack,
+                class_ref,
+                method_ref,
+                None::<ObjectReference>,
+                args,
+            )? {
                 self.push(v)?;
             }
             Ok(())

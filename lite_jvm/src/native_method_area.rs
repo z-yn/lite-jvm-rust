@@ -1,6 +1,6 @@
 use crate::java_exception::{InvokeMethodResult, MethodCallError};
 use crate::jvm_error::VmError;
-use crate::jvm_values::{ReferenceValue, Value};
+use crate::jvm_values::{ObjectReference, ReferenceValue, Value};
 use crate::stack::CallStack;
 use crate::virtual_machine::VirtualMachine;
 use class_file_reader::class_file_version::ClassFileVersion;
@@ -9,7 +9,7 @@ use std::collections::HashMap;
 pub type NativeMethod<'a> = fn(
     &mut VirtualMachine<'a>,
     &mut CallStack<'a>,
-    Option<Box<dyn ReferenceValue<'a>>>,
+    Option<Value<'a>>,
     Vec<Value<'a>>,
 ) -> InvokeMethodResult<'a>;
 
@@ -69,7 +69,7 @@ impl<'a> NativeMethodArea<'a> {
     pub fn nop(
         _vm: &mut VirtualMachine<'a>,
         _call_stack: &mut CallStack<'a>,
-        _receiver: Option<Box<dyn ReferenceValue<'a>>>,
+        _receiver: Option<Value<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         Ok(None)
@@ -77,7 +77,7 @@ impl<'a> NativeMethodArea<'a> {
     pub fn sun_misc_unsafe_array_base_offset(
         _vm: &mut VirtualMachine<'a>,
         _call_stack: &mut CallStack<'a>,
-        _receiver: Option<Box<dyn ReferenceValue<'a>>>,
+        _receiver: Option<Value<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         todo!("实现Unsafe相关的工作是非常繁琐的")
@@ -86,11 +86,15 @@ impl<'a> NativeMethodArea<'a> {
     pub fn java_lang_class_hash_code(
         _vm: &mut VirtualMachine<'a>,
         _call_stack: &mut CallStack<'a>,
-        _receiver: Option<Box<dyn ReferenceValue<'a>>>,
+        _receiver: Option<Value<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         if let Some(obj) = _receiver {
-            Ok(Some(Value::Int(obj.hash_code())))
+            match obj {
+                Value::ObjectRef(obj) => Ok(Some(Value::Int(obj.hash_code()))),
+                Value::ArrayRef(obj) => Ok(Some(Value::Int(obj.hash_code()))),
+                _ => Ok(Some(Value::Int(-1))),
+            }
         } else {
             Ok(Some(Value::Int(-1)))
         }
@@ -98,7 +102,7 @@ impl<'a> NativeMethodArea<'a> {
     pub fn java_lang_class_desired_assertion_status0(
         _vm: &mut VirtualMachine<'a>,
         _call_stack: &mut CallStack<'a>,
-        _receiver: Option<Box<dyn ReferenceValue<'a>>>,
+        _receiver: Option<Value<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         Ok(Some(Value::Int(1)))
@@ -106,7 +110,7 @@ impl<'a> NativeMethodArea<'a> {
     pub fn java_lang_system_arraycopy(
         _vm: &mut VirtualMachine<'a>,
         _call_stack: &mut CallStack<'a>,
-        _receiver: Option<Box<dyn ReferenceValue<'a>>>,
+        _receiver: Option<Value<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         assert_eq!(args.len(), 5);
@@ -125,7 +129,7 @@ impl<'a> NativeMethodArea<'a> {
     pub fn java_lang_class_get_primitive_class(
         vm: &mut VirtualMachine<'a>,
         call_stack: &mut CallStack<'a>,
-        _receiver: Option<Box<dyn ReferenceValue<'a>>>,
+        _receiver: Option<Value<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         let class_name = &args[0].get_string()?;
@@ -146,7 +150,7 @@ impl<'a> NativeMethodArea<'a> {
     pub fn java_lang_system_register_native(
         vm: &mut VirtualMachine<'a>,
         call_stack: &mut CallStack<'a>,
-        _receiver: Option<Box<dyn ReferenceValue<'a>>>,
+        _receiver: Option<Value<'a>>,
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         let class_ref = vm.get_class_by_name(call_stack, "java/lang/System")?;
@@ -159,7 +163,13 @@ impl<'a> NativeMethodArea<'a> {
                 ))
             }
         };
-        vm.invoke_method(call_stack, class_ref, method_ref, None, Vec::new())
+        vm.invoke_method(
+            call_stack,
+            class_ref,
+            method_ref,
+            None::<ObjectReference>,
+            Vec::new(),
+        )
     }
 
     pub fn registry_native_method(
