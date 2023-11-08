@@ -9,6 +9,7 @@ use crate::native_method_area::NativeMethodArea;
 use crate::object_heap::ObjectHeap;
 use crate::runtime_attribute_info::ConstantValueAttribute;
 use crate::stack::CallStack;
+use crate::stack_trace_element::StackTraceElement;
 use crate::static_field_area::StaticArea;
 use typed_arena::Arena;
 
@@ -283,17 +284,48 @@ impl<'a> VirtualMachine<'a> {
         object: Option<impl ReferenceValue<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
-        let depth = "\t".repeat(call_stack.depth() - 1);
-        println!(
-            "{}=> invoke_native_method {}:{}{}",
-            depth, class_ref.name, method_ref.name, method_ref.descriptor
-        );
+        // let depth = "\t".repeat(call_stack.depth() - 1);
+        // println!(
+        //     "{}=> invoke_native_method {}:{}{}",
+        //     depth, class_ref.name, method_ref.name, method_ref.descriptor
+        // );
         let native_method = self.native_method_area.get_method(
             &class_ref.name,
             &method_ref.name,
             &method_ref.descriptor,
         );
         native_method.unwrap()(self, call_stack, object.map(|e| e.as_value()), args)
+    }
+
+    pub fn new_exception_stack_trace_element(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        stack_trace_element: &Vec<StackTraceElement>,
+    ) -> ArrayReference<'a> {
+        let stack_trace_class = self
+            .lookup_class_and_initialize(call_stack, "java/lang/StackTraceElement")
+            .unwrap();
+        let reference = self.new_array(
+            ArrayElement::ClassReference(stack_trace_class),
+            stack_trace_element.len(),
+        );
+        for (index, trace) in stack_trace_element.iter().enumerate() {
+            let trace_ele = self.new_object(stack_trace_class);
+            trace_ele
+                .set_field_by_name(
+                    "declaringClass",
+                    &Value::ObjectRef(
+                        self.new_java_lang_class_object(call_stack, trace.declaring_class.as_str())
+                            .unwrap(),
+                    ),
+                )
+                .unwrap();
+            reference
+                .set_field_by_offset(index, &Value::ObjectRef(trace_ele))
+                .unwrap();
+        }
+
+        reference
     }
 
     pub fn invoke_method(
@@ -309,7 +341,28 @@ impl<'a> VirtualMachine<'a> {
         }
         let mut frame = call_stack.new_frame(class_ref, method_ref, object, args)?;
         let result = frame.as_mut().execute(self, call_stack);
-        call_stack.pop_frame();
+        if let Err(MethodCallError::ExceptionThrown(exception)) = result {
+            let mut stack_trace = Vec::new();
+            println!(
+                "Exception in thread \"main\" {}",
+                exception.get_class().name.replace('/', ".")
+            );
+            //调用栈回退
+            let mut current_frame = call_stack.pop_frame();
+            while current_frame.is_some() {
+                let stack_trace_element = current_frame.unwrap().as_ref().to_stack_trace();
+                println!("{}", stack_trace_element);
+                stack_trace.push(stack_trace_element);
+                current_frame = call_stack.pop_frame();
+            }
+            let stack_trace_array_ref =
+                self.new_exception_stack_trace_element(call_stack, &stack_trace);
+            exception
+                .set_field_by_name("stackTrace", &Value::ArrayRef(stack_trace_array_ref))
+                .expect("")
+        } else {
+            call_stack.pop_frame();
+        }
         result
     }
 
@@ -342,7 +395,6 @@ impl<'a> VirtualMachine<'a> {
 }
 
 mod tests {
-    use crate::jvm_values::ObjectReference;
 
     #[test]
     fn test_hello() {
@@ -371,6 +423,7 @@ mod tests {
     #[test]
     fn test_field_value() {
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
+        use crate::jvm_values::ObjectReference;
         use crate::jvm_values::ReferenceValue;
         use crate::jvm_values::Value;
         use crate::loaded_class::ClassStatus;
@@ -441,6 +494,7 @@ mod tests {
     fn test_exception() {
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
         use crate::java_exception::MethodCallError;
+        use crate::jvm_values::ReferenceValue;
         use crate::jvm_values::Value;
         use crate::loaded_class::ClassStatus;
         use crate::virtual_machine::VirtualMachine;
@@ -499,5 +553,10 @@ mod tests {
                 Vec::new(),
             )
             .unwrap();
+        if let Some(Value::ArrayRef(array_ref)) = result {
+            assert_eq!(array_ref.get_data_length(), 2);
+        } else {
+            panic!("should has stack trace element");
+        }
     }
 }

@@ -6,7 +6,7 @@ use typed_arena::Arena;
 
 //需要包装一个裸指针，用来保持mutable的引用
 #[derive(Debug, Clone)]
-pub struct StackFrameRef<'a>(*mut StackFrame<'a>);
+pub struct StackFrameRef<'a>(pub *mut StackFrame<'a>);
 
 impl<'a> AsRef<StackFrame<'a>> for StackFrameRef<'a> {
     fn as_ref(&self) -> &StackFrame<'a> {
@@ -31,7 +31,7 @@ impl<'a> CallStack<'a> {
             arena: Arena::new(),
         }
     }
-    pub(crate) fn depth(&self) -> usize {
+    pub fn depth(&self) -> usize {
         self.frames.len()
     }
     pub(crate) fn new_frame(
@@ -57,9 +57,11 @@ impl<'a> CallStack<'a> {
         Ok(frame)
     }
 
-    pub(crate) fn pop_frame(&mut self) {
+    pub(crate) fn pop_frame(&mut self) -> Option<StackFrameRef<'a>> {
         if !self.frames.is_empty() {
-            self.frames.pop().unwrap();
+            Some(self.frames.pop().unwrap())
+        } else {
+            None
         }
     }
 }

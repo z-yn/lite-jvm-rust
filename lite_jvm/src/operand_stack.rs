@@ -20,9 +20,8 @@ impl<'a> OperandStack<'a> {
         Ok(vec)
     }
     pub(crate) fn pop(&mut self) -> VmExecResult<Value<'a>> {
-        let result = self.stack.pop().ok_or(VmError::PopFromEmptyStack);
+        self.stack.pop().ok_or(VmError::PopFromEmptyStack)
         // println!("--- value stack --- {:?}", self.stack);
-        result
     }
 
     pub(crate) fn push(&mut self, value: Value<'a>) -> VmExecResult<()> {

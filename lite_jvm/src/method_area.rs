@@ -111,13 +111,11 @@ impl<'a> MethodArea<'a> {
             let method = RuntimeMethodInfo::from(method_info, &constant_pool)?;
             methods.insert(MethodKey::by_method(&method), method);
         }
-        let mut source_code = Vec::new();
+        let mut source_file = None;
         for x in &class_file.attribute_info {
             if x.name == AttributeType::SourceFile {
-                let files = String::from_utf8_lossy(&x.info);
-                for x in files.lines() {
-                    source_code.push(x.to_string());
-                }
+                let index = u16::from_be_bytes(x.info.as_slice().try_into().unwrap());
+                source_file = Some(constant_pool.get_utf8_string(index)?)
             }
         }
         let class_ref = self.classes.alloc(Class {
@@ -133,7 +131,7 @@ impl<'a> MethodArea<'a> {
             methods,
             super_class_name: class_file.super_class_name,
             interface_names: class_file.interface_names,
-            source_code,
+            source_file,
         });
         //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
         let class_ref = unsafe {

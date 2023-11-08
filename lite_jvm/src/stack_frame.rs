@@ -13,6 +13,7 @@ use crate::runtime_attribute_info::ExceptionTable;
 use crate::runtime_constant_pool::RuntimeConstantPoolEntry;
 use crate::stack::CallStack;
 use crate::stack_frame::InstructionResult::{ContinueMethodExecution, ReturnFromMethod};
+use crate::stack_trace_element::StackTraceElement;
 use crate::virtual_machine::VirtualMachine;
 use class_file_reader::cesu8_byte_buffer::ByteBuffer;
 use class_file_reader::instruction::{read_one_instruction, Instruction};
@@ -603,8 +604,8 @@ impl<'a> StackFrame<'a> {
         call_stack: &mut CallStack<'a>,
         instruction: Instruction,
     ) -> InvokeResult<'a, InstructionResult<'a>> {
-        let depth = "\t".repeat(call_stack.depth());
-        println!("{}exec {:?}", depth, instruction);
+        // let depth = "\t".repeat(call_stack.depth());
+        // println!("{}exec {:?}", depth, instruction);
         match instruction {
             Instruction::Aaload => self.exec_aaload()?,
             Instruction::Aastore => self.exec_aastore()?,
@@ -1258,21 +1259,29 @@ impl<'a> StackFrame<'a> {
             Err(MethodCallError::InternalError(ValueTypeMissMatch))
         }
     }
+    pub fn to_stack_trace(&self) -> StackTraceElement {
+        StackTraceElement {
+            declaring_class: self.class_ref.name.clone(),
+            method_name: self.method_ref.name.clone(),
+            file_name: self.class_ref.source_file.clone(),
+            line_number: self.get_line_number(),
+        }
+    }
 
     pub fn execute(
         &mut self,
         vm: &mut VirtualMachine<'a>,
         call_stack: &mut CallStack<'a>,
     ) -> InvokeMethodResult<'a> {
-        let depth = "\t".repeat(call_stack.depth() - 1);
-        println!(
-            "{}=> invoke_method {}:{}{}--{:?}",
-            depth,
-            self.class_ref.name,
-            self.method_ref.name,
-            self.method_ref.descriptor,
-            self.local_var_table
-        );
+        // let depth = "\t".repeat(call_stack.depth() - 1);
+        // println!(
+        //     "{}=> invoke_method {}:{}{}--{:?}",
+        //     depth,
+        //     self.class_ref.name,
+        //     self.method_ref.name,
+        //     self.method_ref.descriptor,
+        //     self.local_var_table
+        // );
 
         loop {
             //记录当前指令的地址，用于实现偏移
@@ -1306,18 +1315,14 @@ impl<'a> StackFrame<'a> {
 
     pub fn get_line_number(&self) -> u16 {
         let code_index = self.pc as u16;
-        if let Some(number) = self.line_number_table.get(&code_index) {
-            *number
-        } else {
-            0
+        let mut current_line_number: u16 = 0;
+        for (start, line_number) in self.line_number_table.iter() {
+            if *start < code_index {
+                current_line_number = *line_number
+            } else {
+                return current_line_number;
+            }
         }
-    }
-
-    pub fn get_source_code(&self, index: u16) -> Option<&String> {
-        if index == 0 {
-            return None;
-        }
-        let offset = (index - 1) as usize;
-        self.class_ref.source_code.get(offset)
+        current_line_number
     }
 }
