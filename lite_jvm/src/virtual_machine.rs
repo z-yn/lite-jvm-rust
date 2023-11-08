@@ -198,7 +198,7 @@ impl<'a> VirtualMachine<'a> {
         class_name: &str,
         method_name: &str,
         descriptor: &str,
-    ) -> Result<MethodRef<'a>, MethodCallError<'a>> {
+    ) -> Result<(ClassRef<'a>, MethodRef<'a>), MethodCallError<'a>> {
         let class_ref = self.lookup_class_and_initialize(call_stack, class_name)?;
         let method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
         Ok(method_ref)
@@ -275,12 +275,12 @@ impl<'a> VirtualMachine<'a> {
         let depth = "\t".repeat(call_stack.depth() - 1);
         println!(
             "{}=> invoke_native_method {}:{}{}",
-            depth, class_ref.name, method_ref.1.name, method_ref.1.descriptor
+            depth, class_ref.name, method_ref.name, method_ref.descriptor
         );
         let native_method = self.native_method_area.get_method(
             &class_ref.name,
-            &method_ref.1.name,
-            &method_ref.1.descriptor,
+            &method_ref.name,
+            &method_ref.descriptor,
         );
         native_method.unwrap()(self, call_stack, object, args)
     }
@@ -293,7 +293,7 @@ impl<'a> VirtualMachine<'a> {
         object: Option<ObjectReference<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
-        if method_ref.1.is_native() {
+        if method_ref.is_native() {
             return self.invoke_native_method(call_stack, class_ref, method_ref, object, args);
         }
         let mut frame = call_stack.new_frame(class_ref, method_ref, object, args)?;

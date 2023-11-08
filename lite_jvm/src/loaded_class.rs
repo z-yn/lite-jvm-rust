@@ -111,7 +111,7 @@ impl<'a> Class<'a> {
                 let const_ptr: *const RuntimeMethodInfo = method;
                 &*const_ptr
             };
-            Ok((self, method_ref))
+            Ok(method_ref)
         } else {
             Err(VmError::MethodNotFoundException(
                 method_name.to_string(),
@@ -123,7 +123,7 @@ impl<'a> Class<'a> {
         &'a self,
         method_name: &str,
         descriptor: &str,
-    ) -> VmExecResult<MethodRef<'a>> {
+    ) -> VmExecResult<(ClassRef<'a>, MethodRef<'a>)> {
         if let Some(method) = self.methods.get(&MethodKey::new(method_name, descriptor)) {
             //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
             let method_ref = unsafe {
@@ -172,7 +172,7 @@ impl<'a> PartialEq<Self> for Class<'a> {
 
 impl<'a> Eq for Class<'a> {}
 
-pub type MethodRef<'a> = (ClassRef<'a>, &'a RuntimeMethodInfo);
+pub type MethodRef<'a> = &'a RuntimeMethodInfo;
 
 pub type FieldRef<'a> = &'a RuntimeFieldInfo;
 

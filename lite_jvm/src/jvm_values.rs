@@ -572,9 +572,7 @@ impl<'a> ReferenceValue<'a> for ObjectReference<'a> {
         //先查找自身类中的field
         let class = self.get_class();
         let field = class.get_field_by_name(name)?;
-        unsafe {
-            return self.write_value_at_offset(field, value);
-        }
+        unsafe { self.write_value_at_offset(field, value) }
     }
 
     fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> VmExecResult<()> {
@@ -587,7 +585,7 @@ impl<'a> ReferenceValue<'a> for ObjectReference<'a> {
         //先查找自身类中的field
         let class_ref = self.get_class();
         let field = class_ref.get_field_by_name(name)?;
-        return unsafe { self.read_value_at_offset(field) };
+        unsafe { self.read_value_at_offset(field) }
     }
 
     fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'a>> {

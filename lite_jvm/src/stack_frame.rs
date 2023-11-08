@@ -271,7 +271,7 @@ impl<'a> StackFrame<'a> {
         method_ref: MethodRef<'a>,
         local_variables: Vec<Value<'a>>,
     ) -> StackFrame<'a> {
-        let code_attr = method_ref.1.code.as_ref().expect("Should Has Code");
+        let code_attr = method_ref.code.as_ref().expect("Should Has Code");
 
         let mut frame = StackFrame {
             class_ref,
@@ -417,7 +417,18 @@ impl<'a> StackFrame<'a> {
     generate_return!(exec_lreturn, Long);
     generate_return!(exec_ireturn, Int);
 
-    generate_if_cmp!(exec_if_acmp, ObjectRef, ObjectReference);
+    fn exec_if_acmp<T>(&mut self, branch: i16, evaluator: T) -> InvokeResult<'a, ()>
+    where
+        T: FnOnce(Value<'a>, Value<'a>) -> bool,
+    {
+        let val2 = self.pop_reference_or_null()?;
+        let val1 = self.pop_reference_or_null()?;
+        let result = evaluator(val1, val2);
+        if result {
+            self.goto_offset(branch as i32)
+        }
+        Ok(())
+    }
     generate_if_cmp!(exec_if_icmp, Int, i32);
 
     fn exec_long_shift<T>(&mut self, evaluator: T) -> Result<(), MethodCallError<'a>>
@@ -967,7 +978,7 @@ impl<'a> StackFrame<'a> {
     }
 
     fn get_constant_pool(&self, offset: u16) -> VmExecResult<&'a RuntimeConstantPoolEntry> {
-        self.method_ref.0.constant_pool.get(offset)
+        self.class_ref.constant_pool.get(offset)
     }
 
     fn exec_ldc(
@@ -1131,7 +1142,8 @@ impl<'a> StackFrame<'a> {
                 //多态方法，方法要从当前对象去查方法实例
                 assert!(object_ref.is_instance_of(class_or_interface_ref));
                 let class_ref = object_ref.get_class();
-                let method_ref = class_ref.get_method_by_checking_super(method_name, descriptor)?;
+                let (class_ref, method_ref) =
+                    class_ref.get_method_by_checking_super(method_name, descriptor)?;
                 if let Some(v) =
                     vm.invoke_method(call_stack, class_ref, method_ref, Some(object_ref), args)?
                 {
@@ -1159,7 +1171,7 @@ impl<'a> StackFrame<'a> {
         {
             let class_ref = vm.lookup_class_and_initialize(call_stack, class_name)?;
             let method_ref = class_ref.get_method(method_name, descriptor)?;
-            let method_args = &method_ref.1.descriptor_args_ret.args;
+            let method_args = &method_ref.descriptor_args_ret.args;
             //TODO validate method_args and poped args type
             let args = self.pop_n(method_args.len())?;
             let object_ref = self.pop_object()?;
@@ -1216,8 +1228,8 @@ impl<'a> StackFrame<'a> {
                 self.class_ref
             };
             let method_ref = class_ref.get_method(method_name, descriptor)?;
-            assert!(method_ref.1.is_static());
-            let method_args = &method_ref.1.descriptor_args_ret.args;
+            assert!(method_ref.is_static());
+            let method_args = &method_ref.descriptor_args_ret.args;
             //TODO validate method_args and poped args type
             let args = self.op_stack.pop_n(method_args.len())?;
             if let Some(v) = vm.invoke_method(call_stack, class_ref, method_ref, None, args)? {
@@ -1239,8 +1251,8 @@ impl<'a> StackFrame<'a> {
             "{}=> invoke_method {}:{}{}--{:?}",
             depth,
             self.class_ref.name,
-            self.method_ref.1.name,
-            self.method_ref.1.descriptor,
+            self.method_ref.name,
+            self.method_ref.descriptor,
             self.local_var_table
         );
 
