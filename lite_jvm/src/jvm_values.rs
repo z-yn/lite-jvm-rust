@@ -79,6 +79,7 @@ pub enum ValueType {
 }
 
 pub trait ReferenceValue<'a> {
+    fn ptr(&self) -> *mut u8;
     fn get_data_length(&self) -> usize;
     fn data_offset(&self) -> usize;
     fn get_header(&self) -> AllocateHeader;
@@ -88,10 +89,15 @@ pub trait ReferenceValue<'a> {
     fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'a>>;
 
     fn as_value(&self) -> Value<'a>;
-
-    //Box需要static的声明周期。
-    fn boxed(self) -> Box<dyn ReferenceValue<'a>>;
     fn hash_code(&self) -> i32;
+
+    fn outbound(&self) -> usize {
+        self.data_offset() + self.get_data_length() * 8
+    }
+
+    fn copy_to(&self, to: &Self) {
+        unsafe { std::ptr::copy(self.ptr(), to.ptr(), self.outbound()) }
+    }
 }
 
 //数组引用分配
@@ -275,31 +281,31 @@ impl<'a> ArrayElement<'a> {
         }
     }
 }
-struct ArrayHeader<'a> {
-    element: ArrayElement<'a>,
-    array_size: usize,
+pub struct ArrayHeader<'a> {
+    pub(crate) element: ArrayElement<'a>,
+    pub(crate) array_size: usize,
 }
 
-struct ObjectHeader<'a> {
+pub struct ObjectHeader<'a> {
     class_ref: ClassRef<'a>,
 }
 
 impl<'a> ArrayReference<'a> {
-    fn get_array_header(&self) -> ArrayHeader {
+    pub fn get_array_header(&self) -> ArrayHeader {
         unsafe {
             let class_ref_ptr = self.data.add(ALLOC_HEADER_SIZE);
             std::ptr::read(class_ref_ptr as *const ArrayHeader)
         }
     }
 
-    fn read_all(&self) -> Vec<Value<'a>> {
+    pub fn read_all(&self) -> Vec<Value<'a>> {
         let header = self.get_array_header();
         (0..header.array_size)
             .map(|i| self.get_field_by_offset(i).unwrap())
             .collect()
     }
 
-    fn get_array_type(&self) -> ArrayElement {
+    pub fn get_array_type(&self) -> ArrayElement {
         self.get_array_header().element
     }
 
@@ -350,6 +356,10 @@ impl<'a> ArrayReference<'a> {
 }
 
 impl<'a> ReferenceValue<'a> for ArrayReference<'a> {
+    fn ptr(&self) -> *mut u8 {
+        self.data
+    }
+
     fn get_data_length(&self) -> usize {
         self.get_array_header().array_size
     }
@@ -357,14 +367,13 @@ impl<'a> ReferenceValue<'a> for ArrayReference<'a> {
     fn data_offset(&self) -> usize {
         ALLOC_HEADER_SIZE + ARRAY_HEADER_SIZE
     }
-
     fn get_header(&self) -> AllocateHeader {
         unsafe { read_allocate_header(self.data) }
     }
+
     fn set_field_by_name(&self, name: &str, value: &Value<'_>) -> VmExecResult<()> {
         self.set_field_by_offset(name.parse::<usize>().unwrap(), value)
     }
-
     fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> VmExecResult<()> {
         let element = self.get_array_type();
         unsafe {
@@ -384,6 +393,7 @@ impl<'a> ReferenceValue<'a> for ArrayReference<'a> {
             }
         }
     }
+
     fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'a>> {
         self.get_field_by_offset(name.parse::<usize>().unwrap())
     }
@@ -409,16 +419,11 @@ impl<'a> ReferenceValue<'a> for ArrayReference<'a> {
     }
 
     fn as_value(&self) -> Value<'a> {
-        Value::ArrayRef(self.clone())
-    }
-
-    fn boxed(self) -> Box<dyn ReferenceValue<'a>> {
-        todo!()
-        // Box::new(self)
+        Value::ArrayRef(*self)
     }
 
     fn hash_code(&self) -> i32 {
-        todo!()
+        self.data as i32
     }
 }
 
@@ -576,6 +581,10 @@ impl<'a> ObjectReference<'a> {
 }
 
 impl<'a> ReferenceValue<'a> for ObjectReference<'a> {
+    fn ptr(&self) -> *mut u8 {
+        self.data
+    }
+
     fn get_data_length(&self) -> usize {
         self.get_class().total_num_of_fields
     }
@@ -615,16 +624,11 @@ impl<'a> ReferenceValue<'a> for ObjectReference<'a> {
     }
 
     fn as_value(&self) -> Value<'a> {
-        Value::ObjectRef(self.clone())
-    }
-
-    fn boxed(self) -> Box<dyn ReferenceValue<'a>> {
-        todo!()
-        // Box::new(self)
+        Value::ObjectRef(*self)
     }
 
     fn hash_code(&self) -> i32 {
-        todo!()
+        self.data as i32
     }
 }
 

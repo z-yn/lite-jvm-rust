@@ -52,6 +52,12 @@ impl<'a> NativeMethodArea<'a> {
         area.registry_native_method("java/lang/Class", "registerNatives", "()V", Self::nop);
         area.registry_native_method("sun/misc/Unsafe", "registerNatives", "()V", Self::nop);
         area.registry_native_method(
+            "java/lang/Object",
+            "clone",
+            "()Ljava/lang/Object;",
+            Self::java_lang_object_clone,
+        );
+        area.registry_native_method(
             "sun/misc/Unsafe",
             "arrayBaseOffset",
             "(Ljava/lang/Class;)I",
@@ -73,6 +79,15 @@ impl<'a> NativeMethodArea<'a> {
         _args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         Ok(None)
+    }
+
+    pub fn java_lang_object_clone(
+        vm: &mut VirtualMachine<'a>,
+        _call_stack: &mut CallStack<'a>,
+        receiver: Option<Value<'a>>,
+        _args: Vec<Value<'a>>,
+    ) -> InvokeMethodResult<'a> {
+        Ok(Some(vm.clone_value(&receiver.unwrap())))
     }
     pub fn sun_misc_unsafe_array_base_offset(
         _vm: &mut VirtualMachine<'a>,

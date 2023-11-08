@@ -313,6 +313,25 @@ impl<'a> VirtualMachine<'a> {
         result
     }
 
+    pub fn clone_value(&mut self, value: &Value<'a>) -> Value<'a> {
+        match value {
+            Value::ObjectRef(obj) => {
+                let class_ref = obj.get_class();
+                let new_ref = self.new_object(class_ref);
+                obj.copy_to(&new_ref);
+                Value::ObjectRef(new_ref)
+            }
+            Value::ArrayRef(arr) => {
+                let header = arr.get_array_header();
+                let new_ref = self.new_array(header.element, header.array_size);
+                arr.copy_to(&new_ref);
+                Value::ArrayRef(new_ref)
+            }
+
+            _ => value.clone(),
+        }
+    }
+
     pub fn allocate_call_stack(&mut self) -> &'a mut CallStack<'a> {
         let stack = self.vm_stacks.alloc(CallStack::new());
         unsafe {
