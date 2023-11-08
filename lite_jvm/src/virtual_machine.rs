@@ -187,6 +187,11 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut CallStack<'a>,
         class_name: &str,
     ) -> Result<ClassRef<'a>, MethodCallError<'a>> {
+        let class_name = if class_name.starts_with('[') {
+            "java/lang/Object"
+        } else {
+            class_name
+        };
         let class = self.method_area.load_class(class_name)?;
         self.link_class(call_stack, class)?;
         self.initialize_class(call_stack, class)?;
@@ -269,7 +274,7 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut CallStack<'a>,
         class_ref: ClassRef<'a>,
         method_ref: MethodRef<'a>,
-        object: Option<ObjectReference<'a>>,
+        object: Option<Box<dyn ReferenceValue<'a>>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         let depth = "\t".repeat(call_stack.depth() - 1);
@@ -290,7 +295,7 @@ impl<'a> VirtualMachine<'a> {
         call_stack: &mut CallStack<'a>,
         class_ref: ClassRef<'a>,
         method_ref: MethodRef<'a>,
-        object: Option<ObjectReference<'a>>,
+        object: Option<Box<dyn ReferenceValue<'a>>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
         if method_ref.is_native() {
@@ -381,7 +386,7 @@ mod tests {
             call_stack,
             class_ref,
             init_method,
-            Some(object_ref),
+            Some(object_ref.boxed()),
             Vec::new(),
         )
         .unwrap();
@@ -404,10 +409,10 @@ mod tests {
     fn test_exception() {
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
         use crate::java_exception::MethodCallError;
+        use crate::jvm_values::ReferenceValue;
         use crate::jvm_values::Value;
         use crate::loaded_class::ClassStatus;
         use crate::virtual_machine::VirtualMachine;
-
         let mut vm = VirtualMachine::new(102400);
         let file_system_path = FileSystemClassPath::new("./resources").unwrap();
         vm.add_class_path(Box::new(file_system_path));
@@ -427,7 +432,7 @@ mod tests {
                 call_stack,
                 class_ref,
                 method_recovery,
-                Some(obj_ref),
+                Some(obj_ref.boxed()),
                 Vec::new(),
             )
             .unwrap()
@@ -442,7 +447,7 @@ mod tests {
             call_stack,
             class_ref,
             throw_null_pointer_exception,
-            Some(obj_ref),
+            Some(obj_ref.boxed()),
             Vec::new(),
         );
         if let Err(MethodCallError::ExceptionThrown(exp)) = result {
@@ -459,7 +464,7 @@ mod tests {
                 call_stack,
                 class_ref,
                 throw_null_pointer_exception,
-                Some(obj_ref),
+                Some(obj_ref.boxed()),
                 Vec::new(),
             )
             .unwrap();

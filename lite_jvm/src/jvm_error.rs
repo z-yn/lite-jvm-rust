@@ -2,7 +2,7 @@ use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq)]
 pub enum VmError {
-    #[error("ClassNotFoundException")]
+    #[error("ClassFormatError")]
     ClassFormatError,
     #[error("ClassNotFoundException {0}")]
     ClassNotFoundException(String),

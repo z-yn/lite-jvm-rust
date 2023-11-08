@@ -35,6 +35,7 @@ pub enum Value<'a> {
     ArrayRef(ArrayReference<'a>),
     Null,
 }
+
 macro_rules! generate_get_value {
     ($name:ident, $variant:ident, $type:ty) => {
         pub fn $name(&self) -> VmExecResult<$type> {
@@ -85,6 +86,12 @@ pub trait ReferenceValue<'a> {
     fn set_field_by_offset(&self, offset: usize, value: &Value<'_>) -> VmExecResult<()>;
     fn get_field_by_name(&self, name: &str) -> VmExecResult<Value<'a>>;
     fn get_field_by_offset(&self, offset: usize) -> VmExecResult<Value<'a>>;
+
+    fn as_value(&self) -> Value<'a>;
+
+    //Box需要static的声明周期。
+    fn boxed(self) -> Box<dyn ReferenceValue<'a>>;
+    fn hash_code(&self) -> i32;
 }
 
 //数组引用分配
@@ -400,6 +407,19 @@ impl<'a> ReferenceValue<'a> for ArrayReference<'a> {
             }
         }
     }
+
+    fn as_value(&self) -> Value<'a> {
+        Value::ArrayRef(self.clone())
+    }
+
+    fn boxed(self) -> Box<dyn ReferenceValue<'a>> {
+        todo!()
+        // Box::new(self)
+    }
+
+    fn hash_code(&self) -> i32 {
+        todo!()
+    }
 }
 
 impl<'a> ObjectReference<'a> {
@@ -592,5 +612,30 @@ impl<'a> ReferenceValue<'a> for ObjectReference<'a> {
         let class_ref = self.get_class();
         let field = class_ref.get_field(offset)?;
         unsafe { self.read_value_at_offset(field) }
+    }
+
+    fn as_value(&self) -> Value<'a> {
+        Value::ObjectRef(self.clone())
+    }
+
+    fn boxed(self) -> Box<dyn ReferenceValue<'a>> {
+        todo!()
+        // Box::new(self)
+    }
+
+    fn hash_code(&self) -> i32 {
+        todo!()
+    }
+}
+
+mod tests {
+
+    #[test]
+    fn test_value() {
+        use crate::jvm_values::Value;
+
+        assert_eq!(Value::Int(1), Value::Int(1));
+        assert_ne!(Value::Int(1), Value::Double(1f64));
+        assert_ne!(Value::Int(1), Value::Null);
     }
 }

@@ -1,5 +1,5 @@
 use crate::jvm_error::{VmError, VmExecResult};
-use crate::jvm_values::{ObjectReference, Value};
+use crate::jvm_values::{ReferenceValue, Value};
 use crate::loaded_class::{ClassRef, MethodRef};
 use crate::stack_frame::StackFrame;
 use typed_arena::Arena;
@@ -38,15 +38,15 @@ impl<'a> CallStack<'a> {
         &mut self,
         class_ref: ClassRef<'a>,
         method_ref: MethodRef<'a>,
-        object: Option<ObjectReference<'a>>,
+        object: Option<Box<dyn ReferenceValue<'a>>>,
         args: Vec<Value<'a>>,
     ) -> VmExecResult<StackFrameRef<'a>> {
         if method_ref.is_native() {
             return Err(VmError::NotImplemented);
         };
         let locals: Vec<Value<'a>> = object
-            .map(Value::ObjectRef)
             .into_iter()
+            .map(|e| e.as_value())
             .chain(args)
             .collect();
         let new_frame = self
