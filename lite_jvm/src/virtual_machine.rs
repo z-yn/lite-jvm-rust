@@ -11,6 +11,7 @@ use crate::runtime_attribute_info::ConstantValueAttribute;
 use crate::stack::CallStack;
 use crate::stack_trace_element::StackTraceElement;
 use crate::static_field_area::StaticArea;
+use log::{debug, error, log_enabled, Level};
 use typed_arena::Arena;
 
 /// 虚拟机实现。 虚拟机应该是总入口
@@ -284,11 +285,14 @@ impl<'a> VirtualMachine<'a> {
         object: Option<impl ReferenceValue<'a>>,
         args: Vec<Value<'a>>,
     ) -> InvokeMethodResult<'a> {
-        // let depth = "\t".repeat(call_stack.depth() - 1);
-        // println!(
-        //     "{}=> invoke_native_method {}:{}{}",
-        //     depth, class_ref.name, method_ref.name, method_ref.descriptor
-        // );
+        if log_enabled!(Level::Debug) {
+            let depth = "\t".repeat(call_stack.depth() - 1);
+            debug!(
+                "{}=> invoke_native_method {}:{}{}",
+                depth, class_ref.name, method_ref.name, method_ref.descriptor
+            );
+        }
+
         let native_method = self.native_method_area.get_method(
             &class_ref.name,
             &method_ref.name,
@@ -343,7 +347,7 @@ impl<'a> VirtualMachine<'a> {
         let result = frame.as_mut().execute(self, call_stack);
         if let Err(MethodCallError::ExceptionThrown(exception)) = result {
             let mut stack_trace = Vec::new();
-            println!(
+            error!(
                 "Exception in thread \"main\" {}",
                 exception.get_class().name.replace('/', ".")
             );
@@ -351,7 +355,7 @@ impl<'a> VirtualMachine<'a> {
             let mut current_frame = call_stack.pop_frame();
             while current_frame.is_some() {
                 let stack_trace_element = current_frame.unwrap().as_ref().to_stack_trace();
-                println!("{}", stack_trace_element);
+                error!("{}", stack_trace_element);
                 stack_trace.push(stack_trace_element);
                 current_frame = call_stack.pop_frame();
             }
@@ -395,7 +399,6 @@ impl<'a> VirtualMachine<'a> {
 }
 
 mod tests {
-
     #[test]
     fn test_hello() {
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
@@ -498,6 +501,7 @@ mod tests {
         use crate::jvm_values::Value;
         use crate::loaded_class::ClassStatus;
         use crate::virtual_machine::VirtualMachine;
+        env_logger::init();
         let mut vm = VirtualMachine::new(102400);
         let file_system_path = FileSystemClassPath::new("./resources").unwrap();
         vm.add_class_path(Box::new(file_system_path));

@@ -18,6 +18,7 @@ use crate::virtual_machine::VirtualMachine;
 use class_file_reader::cesu8_byte_buffer::ByteBuffer;
 use class_file_reader::instruction::{read_one_instruction, Instruction};
 use indexmap::IndexMap;
+use log::{debug, log_enabled, trace, Level};
 use std::ops::{BitAnd, BitOr, BitXor, Div, Mul, Rem, Shl, Shr, Sub};
 
 #[derive(Debug)]
@@ -309,7 +310,7 @@ impl<'a> StackFrame<'a> {
         } else {
             self.local_var_table.push(LocalValue::Entry(value));
         }
-        // println!("--- local variables --- {:?}", self.local_var_table);
+        trace!("--- local variables --- {:?}", self.local_var_table);
     }
 
     fn set_local(&mut self, offset: usize, value: Value<'a>) -> VmExecResult<()> {
@@ -604,8 +605,10 @@ impl<'a> StackFrame<'a> {
         call_stack: &mut CallStack<'a>,
         instruction: Instruction,
     ) -> InvokeResult<'a, InstructionResult<'a>> {
-        // let depth = "\t".repeat(call_stack.depth());
-        // println!("{}exec {:?}", depth, instruction);
+        if log_enabled!(Level::Trace) {
+            let depth = "\t".repeat(call_stack.depth());
+            trace!("{}exec {:?}", depth, instruction);
+        }
         match instruction {
             Instruction::Aaload => self.exec_aaload()?,
             Instruction::Aastore => self.exec_aastore()?,
@@ -1273,15 +1276,17 @@ impl<'a> StackFrame<'a> {
         vm: &mut VirtualMachine<'a>,
         call_stack: &mut CallStack<'a>,
     ) -> InvokeMethodResult<'a> {
-        // let depth = "\t".repeat(call_stack.depth() - 1);
-        // println!(
-        //     "{}=> invoke_method {}:{}{}--{:?}",
-        //     depth,
-        //     self.class_ref.name,
-        //     self.method_ref.name,
-        //     self.method_ref.descriptor,
-        //     self.local_var_table
-        // );
+        if log_enabled!(Level::Trace) {
+            let depth = "\t".repeat(call_stack.depth() - 1);
+            debug!(
+                "{}=> invoke_method {}:{}{}--{:?}",
+                depth,
+                self.class_ref.name,
+                self.method_ref.name,
+                self.method_ref.descriptor,
+                self.local_var_table
+            );
+        }
 
         loop {
             //记录当前指令的地址，用于实现偏移
