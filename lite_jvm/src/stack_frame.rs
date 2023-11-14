@@ -819,8 +819,8 @@ impl<'a> StackFrame<'a> {
                     self.push(Int(0))?;
                 }
             }
-            Instruction::Invokedynamic(_) => {
-                todo!()
+            Instruction::Invokedynamic(cp_index) => {
+                self.exec_invoke_dynamic(vm, call_stack, cp_index)?
             }
             Instruction::Invokeinterface(offset, arg_count) => {
                 self.exec_invoke_interface(vm, call_stack, offset, arg_count)?
@@ -1004,12 +1004,34 @@ impl<'a> StackFrame<'a> {
                 vm.new_java_lang_string_object(call_stack, str).unwrap(),
             )),
 
-            RuntimeConstantPoolEntry::MethodReference(_, _, _) => {
-                todo!("新建一个java.lang.invoke.MethodType")
-            }
-            RuntimeConstantPoolEntry::MethodHandler(_, _, _, _) => {
-                todo!("新建一个java.lang.invoke.MethodHandle")
-            }
+            RuntimeConstantPoolEntry::MethodReference(
+                class_name,
+                method_name,
+                method_descriptor,
+            ) => self.push(ObjectRef(
+                vm.new_java_lang_invoke_method_type(
+                    call_stack,
+                    class_name,
+                    method_name,
+                    method_descriptor,
+                )
+                .unwrap(),
+            )),
+            RuntimeConstantPoolEntry::MethodHandler(
+                kind,
+                class_name,
+                method_name,
+                method_descriptor,
+            ) => self.push(ObjectRef(
+                vm.new_java_lang_invoke_method_handler(
+                    call_stack,
+                    kind,
+                    class_name,
+                    method_name,
+                    method_descriptor,
+                )
+                .unwrap(),
+            )),
             _ => Err(MethodCallError::InternalError(ValueTypeMissMatch)),
         }
     }
@@ -1315,6 +1337,39 @@ impl<'a> StackFrame<'a> {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn exec_invoke_dynamic(
+        &mut self,
+        vm: &mut VirtualMachine<'a>,
+        call_stack: &mut CallStack<'a>,
+        cp_index: u16,
+    ) -> InvokeResult<'a, ()> {
+        if let RuntimeConstantPoolEntry::InvokeDynamic(
+            bootstrap_method_attr_index,
+            method_name,
+            method_descriptor,
+        ) = self.get_constant_pool(cp_index)?
+        {
+            let method = &self.class_ref.bootstrap_method[*bootstrap_method_attr_index as usize];
+            let bootstrap_class_ref =
+                vm.lookup_class_and_initialize(call_stack, &method.class_name)?;
+            let bootstrap_method_ref =
+                bootstrap_class_ref.get_method(&method.method_name, &method.method_descriptor)?;
+            let args = Vec::new();
+            //调用一个方法去获得实际的方法
+            if let Some(ObjectRef(callsite)) = vm.invoke_method(
+                call_stack,
+                bootstrap_class_ref,
+                bootstrap_method_ref,
+                None::<ObjectReference>,
+                args,
+            )? {}
+
+            Ok(())
+        } else {
+            Err(MethodCallError::from(ValueTypeMissMatch))
         }
     }
 

@@ -8,6 +8,7 @@ use crate::method_area::MethodArea;
 use crate::native_method_area::NativeMethodArea;
 use crate::object_heap::ObjectHeap;
 use crate::runtime_attribute_info::ConstantValueAttribute;
+use crate::runtime_constant_pool::MethodHandlerKind;
 use crate::stack::CallStack;
 use crate::stack_trace_element::StackTraceElement;
 use crate::static_field_area::StaticArea;
@@ -84,6 +85,27 @@ impl<'a> VirtualMachine<'a> {
             class_object.set_field_by_name("name", &Value::ObjectRef(string_object))?;
             Ok(class_object)
         }
+    }
+
+    pub fn new_java_lang_invoke_method_type(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        class_name: &str,
+        method_name: &str,
+        method_descriptor: &str,
+    ) -> Result<ObjectReference<'a>, MethodCallError<'a>> {
+        todo!()
+    }
+
+    pub fn new_java_lang_invoke_method_handler(
+        &mut self,
+        call_stack: &mut CallStack<'a>,
+        kind: &MethodHandlerKind,
+        class_name: &str,
+        method_name: &str,
+        method_descriptor: &str,
+    ) -> Result<ObjectReference<'a>, MethodCallError<'a>> {
+        todo!()
     }
 
     pub fn new_java_lang_string_object(
@@ -399,9 +421,12 @@ impl<'a> VirtualMachine<'a> {
 }
 
 mod tests {
+
     #[test]
-    fn test_hello() {
+    fn test_thread() {
+        env_logger::init();
         use crate::class_finder::{FileSystemClassPath, JarFileClassPath};
+        use crate::jvm_values::ObjectReference;
         use crate::loaded_class::ClassStatus;
         use crate::virtual_machine::VirtualMachine;
         let mut vm = VirtualMachine::new(102400);
@@ -411,16 +436,21 @@ mod tests {
         let call_stack = vm.allocate_call_stack();
         vm.add_class_path(Box::new(rt_jar_path));
         let class_ref = vm
-            .lookup_class_and_initialize(call_stack, "HelloWorld")
+            .lookup_class_and_initialize(call_stack, "ThreadTest")
             .unwrap();
         assert_eq!(class_ref.status, ClassStatus::Initialized);
-        // 实现System.out.println有点复杂。
 
-        // let method_ref = class_ref
-        //     .get_method("main", "([Ljava/lang/String;)V")
-        //     .unwrap();
-        // vm.invoke_method(call_stack, class_ref, method_ref, None, Vec::new())
-        //     .unwrap();
+        let method_ref = class_ref
+            .get_method("main", "([Ljava/lang/String;)V")
+            .unwrap();
+        vm.invoke_method(
+            call_stack,
+            class_ref,
+            method_ref,
+            None::<ObjectReference>,
+            Vec::new(),
+        )
+        .unwrap();
     }
 
     #[test]

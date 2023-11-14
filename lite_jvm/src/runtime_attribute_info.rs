@@ -1,5 +1,7 @@
 use crate::jvm_error::{VmError, VmExecResult};
-use crate::runtime_constant_pool::{RuntimeConstantPool, RuntimeConstantPoolEntry};
+use crate::runtime_constant_pool::{
+    MethodHandlerKind, RuntimeConstantPool, RuntimeConstantPoolEntry,
+};
 use class_file_reader::cesu8_byte_buffer::ByteBuffer;
 use class_file_reader::class_file_error;
 use indexmap::IndexMap;
@@ -228,3 +230,66 @@ pub(crate) fn get_attr_as_exception(bytes: &[u8], cp: &RuntimeConstantPool) -> V
 }
 
 //BootstrapMethods
+pub struct BootstrapMethod {
+    pub kind: MethodHandlerKind,
+    pub class_name: String,
+    pub method_name: String,
+    pub method_descriptor: String,
+    ///Each entry in the bootstrap_arguments array must be a valid index into the constant_pool table.
+    /// The constant_pool entry at that index must be a
+    /// CONSTANT_String_info,
+    /// CONSTANT_Class_info,
+    /// CONSTANT_Integer_info,
+    /// CONSTANT_Long_info,
+    /// CONSTANT_Float_info,
+    /// CONSTANT_Double_info,
+    /// CONSTANT_MethodHandle_info, or C
+    /// ONSTANT_MethodType_info structure
+    pub args: Vec<u16>,
+}
+
+impl BootstrapMethod {
+    fn read_one(
+        byte_buffer: &mut ByteBuffer,
+        cp: &RuntimeConstantPool,
+    ) -> VmExecResult<BootstrapMethod> {
+        let index = byte_buffer.read_u16()?;
+        let (kind, class_name, method_name, method_descriptor) =
+            if let RuntimeConstantPoolEntry::MethodHandler(
+                kind,
+                class_name,
+                method_name,
+                method_desc,
+            ) = cp.get(index)?
+            {
+                (
+                    *kind,
+                    class_name.to_string(),
+                    method_name.to_string(),
+                    method_desc.to_string(),
+                )
+            } else {
+                return Err(VmError::ReadClassBytesError(
+                    "ShouldBeAMethodHandlerKind".to_string(),
+                ));
+            };
+        let arg_len = byte_buffer.read_u16()?;
+        let args = (0..arg_len)
+            .map(|_| byte_buffer.read_u16().unwrap())
+            .collect();
+        Ok(BootstrapMethod {
+            kind,
+            class_name,
+            method_name,
+            method_descriptor,
+            args,
+        })
+    }
+    pub fn from(bytes: &[u8], cp: &RuntimeConstantPool) -> VmExecResult<Vec<BootstrapMethod>> {
+        let mut buffer = ByteBuffer::new(bytes);
+        let length = buffer.read_u16()?;
+        (0..length)
+            .map(|_| Self::read_one(&mut buffer, cp))
+            .collect()
+    }
+}

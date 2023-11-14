@@ -1,4 +1,5 @@
 use crate::jvm_error::{VmError, VmExecResult};
+use crate::runtime_attribute_info::BootstrapMethod;
 use crate::runtime_constant_pool::RuntimeConstantPool;
 use crate::runtime_field_info::RuntimeFieldInfo;
 use crate::runtime_method_info::{MethodKey, RuntimeMethodInfo};
@@ -42,6 +43,8 @@ pub struct Class<'a> {
     pub source_file: Option<String>,
 
     pub total_num_of_fields: usize,
+
+    pub bootstrap_method: Vec<BootstrapMethod>,
 }
 
 impl<'a> Class<'a> {

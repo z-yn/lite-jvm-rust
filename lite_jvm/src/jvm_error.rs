@@ -1,3 +1,4 @@
+use class_file_reader::class_file_error::ClassFileError;
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -43,3 +44,9 @@ pub enum VmError {
 }
 
 pub type VmExecResult<T> = Result<T, VmError>;
+
+impl<'a> From<ClassFileError> for VmError {
+    fn from(value: ClassFileError) -> Self {
+        VmError::ReadClassBytesError(value.to_string())
+    }
+}

@@ -2,6 +2,7 @@ use crate::bootstrap_class_loader::{BootstrapClassLoader, ClassLoader, LoadClass
 use crate::class_finder::ClassPath;
 use crate::jvm_error::VmExecResult;
 use crate::loaded_class::{Class, ClassRef, ClassStatus};
+use crate::runtime_attribute_info::BootstrapMethod;
 use crate::runtime_constant_pool::RuntimeConstantPool;
 use crate::runtime_field_info::RuntimeFieldInfo;
 use crate::runtime_method_info::{MethodKey, RuntimeMethodInfo};
@@ -112,10 +113,13 @@ impl<'a> MethodArea<'a> {
             methods.insert(MethodKey::by_method(&method), method);
         }
         let mut source_file = None;
+        let mut bootstrap_method = Vec::new();
         for x in &class_file.attribute_info {
             if x.name == AttributeType::SourceFile {
                 let index = u16::from_be_bytes(x.info.as_slice().try_into().unwrap());
                 source_file = Some(constant_pool.get_utf8_string(index)?)
+            } else if x.name == AttributeType::BootstrapMethods {
+                bootstrap_method = BootstrapMethod::from(&x.info, &constant_pool)?;
             }
         }
         let class_ref = self.classes.alloc(Class {
@@ -132,6 +136,7 @@ impl<'a> MethodArea<'a> {
             super_class_name: class_file.super_class_name,
             interface_names: class_file.interface_names,
             source_file,
+            bootstrap_method,
         });
         //self的声明周期要大于classRef<'a>,实用unsafe 使得编译器能够编译
         let class_ref = unsafe {

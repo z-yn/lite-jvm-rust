@@ -49,6 +49,7 @@ impl<'a> NativeMethodArea<'a> {
         );
 
         area.registry_native_method("java/lang/Object", "registerNatives", "()V", Self::nop);
+        area.registry_native_method("java/lang/Thread", "registerNatives", "()V", Self::nop);
         area.registry_native_method("java/lang/Class", "registerNatives", "()V", Self::nop);
         area.registry_native_method("sun/misc/Unsafe", "registerNatives", "()V", Self::nop);
         area.registry_native_method(

@@ -5,7 +5,7 @@ use class_file_reader::constant_pool::{
 use std::fmt::{Display, Formatter};
 
 //https://docs.oracle.com/javase/specs/jvms/se21/html/jvms-5.html#jvms-5.4.3.5
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum MethodHandlerKind {
     GetField,
     GetStatic,
